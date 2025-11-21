@@ -71,7 +71,7 @@ const PotholeDetector = ({ onBack }) => {
         setLoadingMessage('');
       }
     } catch (err) {
-      setError('Error connecting to server. Make sure Flask backend is running on port 5000.');
+      setError('Error connecting to server. Please try again.');
       setLoading(false);
       setLoadingMessage('');
     }
@@ -102,7 +102,7 @@ const PotholeDetector = ({ onBack }) => {
           </svg>
           <span className="text-sm font-semibold">Back</span>
         </button>
-        <h2 className="text-2xl font-bold text-white">🛣️ Pothole Detection</h2>
+        <h2 className="text-2xl font-bold text-white">Pothole Detection</h2>
         <div className="w-20"></div> {/* Spacer for centering */}
       </div>
 
@@ -117,7 +117,7 @@ const PotholeDetector = ({ onBack }) => {
 
         {error && (
           <div className="flex flex-col items-center justify-center text-center p-8">
-            <div className="text-red-500 text-4xl mb-4">⚠️</div>
+            <div className="text-red-500 text-4xl mb-4"></div>
             <p className="text-white text-lg mb-2">Error</p>
             <p className="text-gray-400 text-sm">{error}</p>
             <button

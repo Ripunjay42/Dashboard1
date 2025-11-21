@@ -1,0 +1,72 @@
+import React from 'react';
+import { 
+  TbMist, 
+  TbBulb, 
+  TbArrowBigLeftLinesFilled, 
+  TbArrowBigRightLinesFilled 
+} from 'react-icons/tb';
+import { MdBrightnessMedium } from 'react-icons/md';
+import { RiCarWashingFill } from 'react-icons/ri';
+import { BsFillExclamationOctagonFill } from 'react-icons/bs';
+import { PiSeatbeltFill } from 'react-icons/pi';
+
+const VehicleIndicators = () => {
+  return (
+    <>
+      {/* Left Side Indicators - Top Left Arc */}
+      <div className="absolute left-10 sm:left-16 top-16 sm:top-2 flex items-center gap-3 sm:gap-4 z-10">
+        {/* Left Turn Signal */}
+        <div className="flex flex-col items-center" title="Left Turn Signal">
+          <TbArrowBigLeftLinesFilled className="text-gray-400 text-xl sm:text-2xl" />
+        </div>
+        
+        {/* Fog Light Front */}
+        <div className="flex flex-col items-center" title="Fog Light Front">
+          <TbMist className="text-gray-400 text-xl sm:text-2xl" />
+        </div>
+        
+        {/* High Beam */}
+        <div className="flex flex-col items-center" title="High Beam">
+          <TbBulb className="text-gray-400 text-xl sm:text-2xl" />
+        </div>
+        
+        {/* Low Beam */}
+        <div className="flex flex-col items-center" title="Low Beam">
+          <MdBrightnessMedium className="text-gray-400 text-xl sm:text-2xl" />
+        </div>
+      </div>
+
+      {/* Right Side Indicators - Top Right Arc */}
+      <div className="absolute right-12 sm:right-2 top-16 sm:top-2 flex items-center gap-3 sm:gap-4 z-10">
+        {/* Parking Brake */}
+        <div className="flex flex-col items-center" title="Parking Brake">
+          <div className="text-gray-400 text-base sm:text-xl font-bold border-2 border-gray-400 rounded-full w-6 h-6 sm:w-8 sm:h-8 flex items-center justify-center">
+            P
+          </div>
+        </div>
+        
+        {/* ABS */}
+        <div className="flex flex-col items-center" title="ABS">
+          <BsFillExclamationOctagonFill className="text-gray-400 text-xl sm:text-2xl" />
+        </div>
+        
+        {/* Airbag */}
+        <div className="flex flex-col items-center" title="Airbag">
+          <RiCarWashingFill className="text-gray-400 text-xl sm:text-2xl" />
+        </div>
+        
+        {/* Seatbelt */}
+        <div className="flex flex-col items-center" title="Seatbelt">
+          <PiSeatbeltFill className="text-gray-400 text-xl sm:text-2xl" />
+        </div>
+        
+        {/* Right Turn Signal */}
+        <div className="flex flex-col items-center" title="Right Turn Signal">
+          <TbArrowBigRightLinesFilled className="text-gray-400 text-xl sm:text-2xl" />
+        </div>
+      </div>
+    </>
+  );
+};
+
+export default VehicleIndicators;
