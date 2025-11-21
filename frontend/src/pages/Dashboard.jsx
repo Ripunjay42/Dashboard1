@@ -15,6 +15,8 @@ const Dashboard = ({ onSelectUseCase }) => {
   const [speed, setSpeed] = useState(0);
   const [rpm, setRpm] = useState(0);
   const [isThrottling, setIsThrottling] = useState(false);
+  const [leftTurnActive, setLeftTurnActive] = useState(false);
+  const [rightTurnActive, setRightTurnActive] = useState(false);
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -54,7 +56,7 @@ const Dashboard = ({ onSelectUseCase }) => {
     };
   }, [isThrottling]);
 
-  // Keyboard controls for speed and RPM
+  // Keyboard controls for speed, RPM, and turn signals
   useEffect(() => {
     const handleKeyDown = (e) => {
       if (e.key === 'ArrowUp' && !e.repeat) {
@@ -64,14 +66,14 @@ const Dashboard = ({ onSelectUseCase }) => {
         e.preventDefault();
         setSpeed(prev => Math.max(prev - 10, 0));
         setRpm(prev => Math.max(prev - 500, 0));
-      } else if (e.key === 'ArrowRight') {
+      } else if (e.key === 'ArrowRight' && !e.repeat) {
         e.preventDefault();
-        setSpeed(prev => Math.min(prev + 5, 180));
-        setRpm(prev => Math.min(prev + 250, 8000));
-      } else if (e.key === 'ArrowLeft') {
+        setRightTurnActive(true);
+        // Removed speed/RPM changes for right arrow - only turn signal
+      } else if (e.key === 'ArrowLeft' && !e.repeat) {
         e.preventDefault();
-        setSpeed(prev => Math.max(prev - 5, 0));
-        setRpm(prev => Math.max(prev - 250, 0));
+        setLeftTurnActive(true);
+        // Removed speed/RPM changes for left arrow - only turn signal
       }
     };
 
@@ -79,6 +81,12 @@ const Dashboard = ({ onSelectUseCase }) => {
       if (e.key === 'ArrowUp') {
         e.preventDefault();
         setIsThrottling(false);
+      } else if (e.key === 'ArrowRight') {
+        e.preventDefault();
+        setRightTurnActive(false);
+      } else if (e.key === 'ArrowLeft') {
+        e.preventDefault();
+        setLeftTurnActive(false);
       }
     };
 
@@ -122,7 +130,10 @@ const Dashboard = ({ onSelectUseCase }) => {
         {/* Inner Content Container */}
         <div className="relative w-full h-full flex items-center justify-center px-1 sm:px-8 py-2 sm:py-8">
           {/* Vehicle Indicators */}
-          <VehicleIndicators />
+          <VehicleIndicators 
+            leftTurnActive={leftTurnActive} 
+            rightTurnActive={rightTurnActive} 
+          />
 
           {/* Main Content Area - Vertically stacked with bars */}
           <div className="flex flex-col items-center gap-2 w-full max-w-[1600px]">

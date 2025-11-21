@@ -10,14 +10,20 @@ import { RiCarWashingFill } from 'react-icons/ri';
 import { BsFillExclamationOctagonFill } from 'react-icons/bs';
 import { PiSeatbeltFill } from 'react-icons/pi';
 
-const VehicleIndicators = () => {
+const VehicleIndicators = ({ leftTurnActive = false, rightTurnActive = false }) => {
   return (
     <>
       {/* Left Side Indicators - Top Left Arc */}
       <div className="absolute left-10 sm:left-16 top-16 sm:top-2 flex items-center gap-3 sm:gap-4 z-10">
         {/* Left Turn Signal */}
         <div className="flex flex-col items-center" title="Left Turn Signal">
-          <TbArrowBigLeftLinesFilled className="text-gray-400 text-xl sm:text-2xl" />
+          <TbArrowBigLeftLinesFilled 
+            className={`text-xl sm:text-2xl transition-all duration-150 ${
+              leftTurnActive 
+                ? 'text-green-400 drop-shadow-[0_0_10px_rgba(74,222,128,0.8)] animate-pulse' 
+                : 'text-gray-400'
+            }`} 
+          />
         </div>
         
         {/* Fog Light Front */}
@@ -62,7 +68,13 @@ const VehicleIndicators = () => {
         
         {/* Right Turn Signal */}
         <div className="flex flex-col items-center" title="Right Turn Signal">
-          <TbArrowBigRightLinesFilled className="text-gray-400 text-xl sm:text-2xl" />
+          <TbArrowBigRightLinesFilled 
+            className={`text-xl sm:text-2xl transition-all duration-150 ${
+              rightTurnActive 
+                ? 'text-green-400 drop-shadow-[0_0_10px_rgba(74,222,128,0.8)] animate-pulse' 
+                : 'text-gray-400'
+            }`} 
+          />
         </div>
       </div>
     </>
