@@ -20,7 +20,7 @@ _detector_lock = threading.Lock()
 class PotholeDetector:
     
     def __init__(self, model_path, device=None):
-        print(f"⚡ Loading model (ULTRA FAST MODE)...")
+        print(f" Loading model (ULTRA FAST MODE)...")
         start_time = time.time()
         
         self.device = device or ('cuda' if torch.cuda.is_available() else 'cpu')
@@ -106,7 +106,7 @@ def get_camera_pipeline(camera_id=0):
         pass
     
     if is_jetson:
-        print("🚀 Jetson Nano detected - Using GStreamer pipeline")
+        print("Jetson Nano detected - Using GStreamer pipeline")
         
         # Try CSI camera first (Raspberry Pi Camera)
         gst_csi = (
@@ -131,7 +131,7 @@ def get_camera_pipeline(camera_id=0):
         return [(gst_csi, cv2.CAP_GSTREAMER), (gst_usb, cv2.CAP_GSTREAMER)]
     
     elif system == "Linux":
-        print("🐧 Linux detected - Using V4L2 GStreamer")
+        print("Linux detected - Using V4L2 GStreamer")
         gst = (
             f"v4l2src device=/dev/video{camera_id} ! "
             "video/x-raw, width=640, height=480, framerate=30/1 ! "
@@ -157,7 +157,7 @@ class VideoStreamManager:
     Result: Smooth 30 FPS video + accurate detection, NO LAG!
     """
     
-    def __init__(self, model_path, camera_id=0, pre_open_camera=False):
+    def __init__(self, model_path, camera_id=0):
         # Use global detector instance
         self.detector = get_global_detector(model_path)
         self.camera_id = camera_id
@@ -182,11 +182,6 @@ class VideoStreamManager:
         
         # Performance settings (ULTRA FAST)
         self.jpeg_quality = 55  # Lower quality = faster encoding (was 65)
-        
-        # Pre-open camera if requested (for instant detection on first use)
-        if pre_open_camera:
-            print("Pre-initializing camera for instant startup...")
-            self._open_camera()
     
     def _open_camera(self):
         """Open camera with platform-specific optimizations and better error handling"""
@@ -205,7 +200,7 @@ class VideoStreamManager:
                 self.cap = cv2.VideoCapture(pipeline, backend)
                 
                 if not self.cap.isOpened():
-                    print(f"   ✗ Failed to open")
+                    print(f"    Failed to open")
                     continue
                 
                 # Set properties BEFORE testing read
@@ -224,26 +219,26 @@ class VideoStreamManager:
                     ret, frame = self.cap.read()
                     if ret and frame is not None and frame.size > 0:
                         success = True
-                        print(f"   ✓ Success on attempt {attempt + 1}")
+                        print(f"    Success on attempt {attempt + 1}")
                         break
                     time.sleep(0.2)
                 
                 if success:
                     open_time = time.time() - start_time
-                    print(f"✓ Camera opened in {open_time:.2f}s\n")
+                    print(f" Camera opened in {open_time:.2f}s\n")
                     return True
                 else:
-                    print(f"   ✗ Could not read frames")
+                    print(f"    Could not read frames")
                     self.cap.release()
                     
             except Exception as e:
-                print(f"   ✗ Failed: {e}")
+                print(f"    Failed: {e}")
                 if self.cap:
                     self.cap.release()
                 continue
         
-        print("❌ Failed to open camera with any method")
-        print("   💡 Tip: Close other apps using the camera (Zoom, Teams, etc.)")
+        print("Failed to open camera with any method")
+        print("    Tip: Close other apps using the camera (Zoom, Teams, etc.)")
         self.cap = None
         return False
     
@@ -257,7 +252,7 @@ class VideoStreamManager:
             if not self._open_camera():
                 return False
         else:
-            print("✓ Camera already initialized, starting threads...")
+            print("Camera already initialized, starting threads...")
         
         self.is_running = True
         
@@ -269,7 +264,7 @@ class VideoStreamManager:
         ai_thread = threading.Thread(target=self._ai_inference_loop, daemon=True)
         ai_thread.start()
         
-        print("✓ Two parallel threads started:")
+        print(" Two parallel threads started:")
         print("  - Thread 1: Video streaming (30 FPS)")
         print("  - Thread 2: AI inference (REAL-TIME, adaptive)")
         
@@ -397,7 +392,7 @@ class VideoStreamManager:
             self.current_mask = None
             self.pothole_detected = False
         
-        print("🛑 Video and AI threads stopped")
+        print(" Video and AI threads stopped")
     
     def is_active(self):
         """Check if stream is active"""

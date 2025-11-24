@@ -8,10 +8,14 @@ const PotholeDetector = ({ onBack }) => {
   const [potholeDetected, setPotholeDetected] = useState(false);
   const statusIntervalRef = useRef(null);
   const API_URL = 'http://localhost:5000/api/pothole';
+  const hasStartedRef = useRef(false);
 
   useEffect(() => {
-    // Auto-start detection when component mounts
-    startDetection();
+    // Start detection only once when component mounts
+    if (!hasStartedRef.current) {
+      hasStartedRef.current = true;
+      startDetection();
+    }
     
     // Cleanup on unmount
     return () => {

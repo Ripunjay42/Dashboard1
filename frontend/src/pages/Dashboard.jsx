@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import Speedometer from '../components/Speedometer';
 import RPMMeter from '../components/RPMMeter';
 import PotholeDetector from '../components/PotholeDetector';
+import BlindSpotDetector from '../components/BlindSpotDetector';
 import FeatureBar from '../components/FeatureBar';
 import StatusBar from '../components/StatusBar';
 import VehicleIndicators from '../components/VehicleIndicators';
@@ -24,6 +25,15 @@ const Dashboard = ({ onSelectUseCase }) => {
     }, 1000);
     return () => clearInterval(timer);
   }, []);
+
+  // Cleanup: Stop any active feature when component unmounts
+  useEffect(() => {
+    return () => {
+      if (activeFeature) {
+        stopActiveFeature(activeFeature);
+      }
+    };
+  }, [activeFeature]);
 
   // Throttle effect - increase while holding, decrease when released
   useEffect(() => {
@@ -98,12 +108,40 @@ const Dashboard = ({ onSelectUseCase }) => {
     };
   }, []);
 
-  const handleFeatureClick = (featureId) => {
+  // Stop active feature before switching to a new one
+  const stopActiveFeature = async (currentFeature) => {
+    const API_BASE = 'http://localhost:5000/api';
+    
+    try {
+      if (currentFeature === 'pothole') {
+        console.log('Stopping pothole detection...');
+        await fetch(`${API_BASE}/pothole/stop`, { method: 'POST' });
+      } else if (currentFeature === 'blindspot') {
+        console.log('Stopping blind spot detection...');
+        await fetch(`${API_BASE}/blindspot/stop`, { method: 'POST' });
+      }
+    } catch (error) {
+      console.error(`Error stopping ${currentFeature}:`, error);
+    }
+  };
+
+  const handleFeatureClick = async (featureId) => {
+    // If switching to a different feature, stop the current one first
+    if (activeFeature && activeFeature !== featureId) {
+      await stopActiveFeature(activeFeature);
+    }
+    
+    // Set the new active feature
     if (featureId === 'pothole') {
       setActiveFeature('pothole');
       // Also call the parent's onSelectUseCase if needed
       if (onSelectUseCase) {
         onSelectUseCase('pothole');
+      }
+    } else if (featureId === 'blindspot') {
+      setActiveFeature('blindspot');
+      if (onSelectUseCase) {
+        onSelectUseCase('blindspot');
       }
     }
   };
@@ -154,7 +192,15 @@ const Dashboard = ({ onSelectUseCase }) => {
                     <div className="bg-gray-900 border-2 rounded-2xl h-full w-full overflow-hidden relative">
                       {/* Show Pothole Detection when active */}
                       {activeFeature === 'pothole' ? (
-                        <PotholeDetector onBack={() => setActiveFeature(null)} />
+                        <PotholeDetector onBack={async () => {
+                          await stopActiveFeature('pothole');
+                          setActiveFeature(null);
+                        }} />
+                      ) : activeFeature === 'blindspot' ? (
+                        <BlindSpotDetector onBack={async () => {
+                          await stopActiveFeature('blindspot');
+                          setActiveFeature(null);
+                        }} />
                       ) : (
                         <Car3DView />
                       )}

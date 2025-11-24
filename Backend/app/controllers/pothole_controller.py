@@ -5,24 +5,12 @@ from app.services.pothole_detector import VideoStreamManager
 video_manager = None
 
 
-def initialize_stream(model_path, camera_id, pre_open_camera=False):
-    """Initialize the video stream manager with optional pre-opening of camera"""
+def initialize_stream(model_path, camera_id):
+    """Initialize the video stream manager"""
     global video_manager
     if video_manager is None:
-        video_manager = VideoStreamManager(model_path, camera_id, pre_open_camera=pre_open_camera)
+        video_manager = VideoStreamManager(model_path, camera_id)
     return video_manager
-
-
-def pre_initialize_camera(model_path, camera_id):
-    """Pre-open the camera for instant start later (call on backend startup)"""
-    try:
-        print("Pre-initializing camera for instant startup...")
-        initialize_stream(model_path, camera_id, pre_open_camera=True)
-        print("Camera pre-initialization complete!")
-        return True
-    except Exception as e:
-        print(f"Error pre-initializing camera: {e}")
-        return False
 
 
 def start_detection(model_path, camera_id):
