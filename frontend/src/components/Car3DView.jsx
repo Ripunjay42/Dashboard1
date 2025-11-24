@@ -35,7 +35,7 @@ const Car3DView = () => {
           {/* Three Lane Lines Container */}
           <div className="absolute inset-0 flex justify-center items-center gap-0">
             {/* Left Lane Line */}
-            <div className="absolute left-[30%] top-0 bottom-0 w-0.5 flex flex-col justify-start py-0 gap-px">
+            <div className="absolute left-[20%] top-0 bottom-0 w-0.5 flex flex-col justify-start py-0 gap-px">
               {[...Array(200)].map((_, i) => (
                 <div 
                   key={`left-${i}`}
@@ -63,7 +63,7 @@ const Car3DView = () => {
             </div>
 
             {/* Right Lane Line */}
-            <div className="absolute right-[30%] top-0 bottom-0 w-0.5 flex flex-col justify-start py-0 gap-px">
+            <div className="absolute right-[20%] top-0 bottom-0 w-0.5 flex flex-col justify-start py-0 gap-px">
               {[...Array(200)].map((_, i) => (
                 <div 
                   key={`right-${i}`}

@@ -13,25 +13,25 @@ const StatusBar = ({ time }) => {
     { 
       id: 'ac', 
       label: 'Climate', 
-      icon: <MdAcUnit className="w-5 h-5 text-cyan-400" />, 
+      icon: <MdAcUnit className="w-4 h-4 text-cyan-400" />, 
       value: '22°C' 
     },
     { 
       id: 'fuel', 
       label: 'Fuel', 
-      icon: <MdLocalGasStation className="w-5 h-5 text-yellow-400" />, 
+      icon: <MdLocalGasStation className="w-4 h-4 text-yellow-400" />, 
       value: '130km' 
     },
     { 
       id: 'distance', 
       label: 'Trip', 
-      icon: <MdMyLocation className="w-5 h-5 text-green-400" />, 
+      icon: <MdMyLocation className="w-4 h-4 text-green-400" />, 
       value: '21341km' 
     }
   ];
 
   return (
-    <div className="bg-gray-900/90 backdrop-blur-sm border-2 border-gray-700 rounded-3xl px-2 sm:px-8 py-2 sm:py-3 shadow-xl w-full max-w-[850px] mx-auto">
+    <div className="bg-gray-900/90 backdrop-blur-sm border-2 border-gray-700 rounded-3xl px-2 sm:px-2 py-2 sm:py-3 shadow-xl w-full max-w-[800px] mx-auto">
       <div className="flex flex-wrap items-center gap-2 sm:gap-4 text-xs sm:text-sm justify-center">
         {bottomStatusItems.map((item, index) => (
           <React.Fragment key={item.id}>
@@ -57,7 +57,7 @@ const StatusBar = ({ time }) => {
         </div>
         <div className="text-gray-500">|</div>
         <div className="flex items-center gap-2 text-gray-300">
-          <TbManualGearbox className="w-5 h-5 text-orange-400" />
+          <TbManualGearbox className="w-4 h-4 text-orange-400" />
           PARK
         </div>
       </div>
