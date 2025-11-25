@@ -1,27 +1,13 @@
 import React, { useState } from 'react';
-import { TbRoad, TbEye, TbCar } from 'react-icons/tb';
+import { TbRoad, TbEye, TbHome } from 'react-icons/tb';
 import { GiCarSeat, GiSpeedometer } from 'react-icons/gi';
 import { IoShieldCheckmark } from 'react-icons/io5';
 import { FaCar, FaTruck, FaBus } from 'react-icons/fa';
 import ConfigDropdown from './ConfigDropdown';
 
 const FeatureBar = ({ activeFeature, onFeatureClick }) => {
-  const [selectionMode, setSelectionMode] = useState(null); // null, 'vehicle', 'camera', 'algo'
-  const [selectedVehicle, setSelectedVehicle] = useState(null);
-  const [selectedCameraCount, setSelectedCameraCount] = useState(null);
-  const [showDropdown, setShowDropdown] = useState(false);
 
-  const vehicleTypes = [
-    { id: 'car', label: 'Car', icon: <FaCar className="w-5 h-5" /> },
-    { id: 'truck', label: 'Truck', icon: <FaTruck className="w-5 h-5" />, disabled: true },
-    { id: 'bus', label: 'Bus', icon: <FaBus className="w-5 h-5" />, disabled: true },
-  ];
 
-  const cameraCounts = [
-    { id: '1', label: '1 Camera', count: 1, disabled: true },
-    { id: '2', label: '2 Cameras', count: 2, disabled: true },
-    { id: '3', label: '3 Cameras', count: 3 },
-  ];
 
   const algoButtons = [
     { 
@@ -63,8 +49,6 @@ const FeatureBar = ({ activeFeature, onFeatureClick }) => {
     const algo = algoButtons.find(a => a.id === algoId);
     if (algo && algo.status === 'active') {
       onFeatureClick(algoId);
-      setSelectionMode(null);
-      setShowDropdown(false);
     }
   };
 
@@ -72,36 +56,26 @@ const FeatureBar = ({ activeFeature, onFeatureClick }) => {
     onFeatureClick(featureId);
   };
 
-  const handleConfigClick = () => {
-    setShowDropdown(!showDropdown);
-    if (!showDropdown) {
-      setSelectionMode('vehicle');
-    } else {
-      setSelectionMode(null);
-    }
+  const handleHomeClick = () => {
+    onFeatureClick(null); // Go to home/main page
   };
 
-  const handleCloseDropdown = () => {
-    setSelectionMode(null);
-    setShowDropdown(false);
-  };
-
-  // Main view with config button + all features
+  // Main view with home button + all features
   return (
     <div className="relative w-full max-w-[750px] mx-auto">
       {/* Main Feature Bar */}
       <div className="bg-gray-900/90 backdrop-blur-sm border-2 border-gray-700 rounded-3xl px-2 sm:px-2 py-2 sm:py-3 shadow-xl">
         <div className="flex flex-wrap items-center justify-center gap-1 sm:gap-1">
-          {/* Vehicle Setup Button */}
+          {/* Home Button */}
           <button
-            onClick={handleConfigClick}
+            onClick={handleHomeClick}
             className={`flex items-center gap-2 px-3 sm:px-4 py-2 rounded-lg transition-all text-xs sm:text-sm text-white ${
-              showDropdown ? 'bg-gray-800' : 'hover:bg-gray-800'
+              activeFeature === null ? 'bg-gray-700' : 'hover:bg-gray-800'
             }`}
           >
-            <TbCar className="w-4 h-4" />
+            <TbHome className="w-4 h-4" />
             <div className="text-left">
-              <div className="font-bold">Vehicle</div>
+              <div className="font-bold">Home</div>
             </div>
           </button>
 
@@ -152,24 +126,6 @@ const FeatureBar = ({ activeFeature, onFeatureClick }) => {
           ))}
         </div>
       </div>
-
-      {/* Dropdown Panel */}
-      {showDropdown && (
-        <ConfigDropdown
-          selectionMode={selectionMode}
-          setSelectionMode={setSelectionMode}
-          selectedVehicle={selectedVehicle}
-          setSelectedVehicle={setSelectedVehicle}
-          selectedCameraCount={selectedCameraCount}
-          setSelectedCameraCount={setSelectedCameraCount}
-          vehicleTypes={vehicleTypes}
-          cameraCounts={cameraCounts}
-          algoButtons={algoButtons}
-          activeFeature={activeFeature}
-          onAlgoSelect={handleAlgoSelect}
-          onClose={handleCloseDropdown}
-        />
-      )}
     </div>
   );
 };

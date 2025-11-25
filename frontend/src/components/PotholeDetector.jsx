@@ -97,15 +97,7 @@ const PotholeDetector = ({ onBack }) => {
     <div className="h-full flex flex-col p-4">
       {/* Header with back button */}
       <div className="flex items-center justify-between mb-4">
-        <button
-          onClick={onBack}
-          className="flex items-center gap-2 px-3 py-2 bg-gray-900 hover:bg-gray-700 text-gray-300 hover:text-white rounded-lg transition-colors border border-gray-600"
-        >
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
-          </svg>
-          <span className="text-sm font-semibold">Back</span>
-        </button>
+
         <h2 className="text-2xl font-bold text-white">Pothole Detection</h2>
         <div className="w-20"></div> {/* Spacer for centering */}
       </div>

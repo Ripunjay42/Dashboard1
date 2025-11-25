@@ -143,6 +143,12 @@ const Dashboard = ({ onSelectUseCase }) => {
       if (onSelectUseCase) {
         onSelectUseCase('blindspot');
       }
+    } else if (featureId === null) {
+      // Home button clicked - go back to main view
+      setActiveFeature(null);
+      if (onSelectUseCase) {
+        onSelectUseCase(null);
+      }
     }
   };
 
