@@ -17,16 +17,10 @@ const StatusBar = ({ time }) => {
       value: '22°C' 
     },
     { 
-      id: 'fuel', 
-      label: 'Fuel', 
-      icon: <MdLocalGasStation className="w-4 h-4 text-yellow-400" />, 
-      value: '130km' 
-    },
-    { 
       id: 'distance', 
       label: 'Trip', 
       icon: <MdMyLocation className="w-4 h-4 text-green-400" />, 
-      value: '21341km' 
+      value: '2134km' 
     }
   ];
 

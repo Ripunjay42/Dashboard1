@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import Speedometer from '../components/Speedometer';
-import RPMMeter from '../components/RPMMeter';
+import BatteryMeter from '../components/BatteryMeter';
 import PotholeDetector from '../components/PotholeDetector';
 import BlindSpotDetector from '../components/BlindSpotDetector';
 import FeatureBar from '../components/FeatureBar';
@@ -14,7 +14,7 @@ const Dashboard = ({ onSelectUseCase }) => {
   const [activeTab, setActiveTab] = useState('home');
   const [activeFeature, setActiveFeature] = useState(null); // Track which feature is active
   const [speed, setSpeed] = useState(0);
-  const [rpm, setRpm] = useState(0);
+  const [battery, setBattery] = useState(100); // Battery percentage (0-100) - Start at full charge
   const [isThrottling, setIsThrottling] = useState(false);
   const [leftTurnActive, setLeftTurnActive] = useState(false);
   const [rightTurnActive, setRightTurnActive] = useState(false);
@@ -35,27 +35,29 @@ const Dashboard = ({ onSelectUseCase }) => {
     };
   }, [activeFeature]);
 
-  // Throttle effect - increase while holding, decrease when released
+  // Throttle effect - increase speed while holding, decrease when released
+  // Battery drains slightly when driving fast
   useEffect(() => {
     let throttleInterval;
     let releaseInterval;
+    let batteryInterval;
 
     if (isThrottling) {
-      // Increase speed and RPM while throttling
+      // Increase speed while throttling
       throttleInterval = setInterval(() => {
         setSpeed(prev => Math.min(prev + 5, 180));
-        setRpm(prev => Math.min(prev + 250, 8000));
       }, 50);
+
+      // Drain battery slightly when accelerating
+      batteryInterval = setInterval(() => {
+        setBattery(prev => Math.max(prev - 0.1, 0));
+      }, 1000);
     } else {
-      // Gradually decrease to 0 when throttle is released
+      // Gradually decrease speed to 0 when throttle is released
       releaseInterval = setInterval(() => {
         setSpeed(prev => {
           const newSpeed = prev - 8;
           return newSpeed < 0 ? 0 : newSpeed;
-        });
-        setRpm(prev => {
-          const newRpm = prev - 400;
-          return newRpm < 0 ? 0 : newRpm;
         });
       }, 50);
     }
@@ -63,6 +65,7 @@ const Dashboard = ({ onSelectUseCase }) => {
     return () => {
       clearInterval(throttleInterval);
       clearInterval(releaseInterval);
+      clearInterval(batteryInterval);
     };
   }, [isThrottling]);
 
@@ -75,15 +78,14 @@ const Dashboard = ({ onSelectUseCase }) => {
       } else if (e.key === 'ArrowDown') {
         e.preventDefault();
         setSpeed(prev => Math.max(prev - 10, 0));
-        setRpm(prev => Math.max(prev - 500, 0));
       } else if (e.key === 'ArrowRight' && !e.repeat) {
         e.preventDefault();
         setRightTurnActive(true);
-        // Removed speed/RPM changes for right arrow - only turn signal
+        // Only turn signal - no speed changes
       } else if (e.key === 'ArrowLeft' && !e.repeat) {
         e.preventDefault();
         setLeftTurnActive(true);
-        // Removed speed/RPM changes for left arrow - only turn signal
+        // Only turn signal - no speed changes
       }
     };
 
@@ -215,9 +217,9 @@ const Dashboard = ({ onSelectUseCase }) => {
                 </div>
               </div>
 
-              {/* Right - RPM Meter - Always visible */}
+              {/* Right - Battery Meter - Always visible */}
               <div className="w-full max-w-[380px] shrink-0 flex justify-center">
-                <RPMMeter value={rpm} />
+                <BatteryMeter value={battery} />
               </div>
             </div>
 
