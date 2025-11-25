@@ -9,7 +9,11 @@ import time
 import platform
 import os
 import gc
+import warnings
 from queue import Queue
+
+# Suppress JPEG corruption warnings (common with USB cameras on Jetson)
+warnings.filterwarnings('ignore', message='Corrupt JPEG data')
 
 # Jetson Orin Nano: Prevent segmentation faults
 os.environ['OPENCV_VIDEOIO_PRIORITY_GSTREAMER'] = '1'
@@ -497,15 +501,14 @@ class VideoStreamManager:
                     continue
                 # OPTIMIZATION: Resize before copy to reduce memory transfer
                 frame_small = cv2.resize(self.latest_frame, (320, 240), interpolation=cv2.INTER_LINEAR)
+                # CRITICAL: Store original dimensions inside lock to prevent race condition
+                original_h, original_w = self.latest_frame.shape[:2]
             
             # Run AI inference immediately (smaller frame = faster inference!)
             mask = self.detector.detect(frame_small)
             
-            # Resize mask back to original size for overlay
-            mask_full = cv2.resize(mask, (self.latest_frame.shape[1], self.latest_frame.shape[0]), 
-                                  interpolation=cv2.INTER_NEAREST)
-            # Resize mask back to original size for overlay
-            mask_full = cv2.resize(mask, (self.latest_frame.shape[1], self.latest_frame.shape[0]), 
+            # Resize mask back to original size for overlay (using stored dimensions)
+            mask_full = cv2.resize(mask, (original_w, original_h), 
                                   interpolation=cv2.INTER_NEAREST)
             
             # Check if pothole detected

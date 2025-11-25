@@ -173,15 +173,18 @@ class BlindSpotDetector:
         try:
             # YOLO inference with optimized parameters
             with torch.no_grad():  # Prevent gradient accumulation
+                # Determine if we can use FP16 (only on CUDA, not CPU)
+                use_half = self.is_jetson and self.device == 'cuda'
+                
                 if self.is_jetson:
-                    # Jetson: Use FP16 for speed, stream for memory efficiency
+                    # Jetson: Use FP16 ONLY if CUDA is available
                     results = self.yolo.predict(
                         frame, 
                         imgsz=self.yolo_img_size,
                         conf=self.conf_threshold,
                         iou=self.iou_threshold,
                         verbose=False,
-                        half=True,  # FP16 for Jetson
+                        half=use_half,  # FP16 only on CUDA
                         device=self.device,
                         save=False,  # Don't save results to disk
                         stream=True,  # Stream results for memory efficiency
@@ -197,7 +200,7 @@ class BlindSpotDetector:
                         conf=self.conf_threshold,
                         iou=self.iou_threshold,
                         verbose=False,
-                        half=False,  # CPU doesn't benefit from FP16
+                        half=False,  # CPU doesn't support FP16
                         device='cpu',  # Force CPU for consistency
                         classes=VEHICLE_CLASSES,  # Only detect vehicles (faster)
                         save=False,  # Don't save results to disk
