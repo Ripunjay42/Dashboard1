@@ -4,11 +4,23 @@ import torch
 from ultralytics import YOLO
 import time
 import threading
+import os
+import gc
 from queue import Queue
 import platform
 
-# Enable CUDA optimizations
-torch.backends.cudnn.benchmark = True
+# Jetson Orin Nano: Prevent segmentation faults
+os.environ['OPENCV_VIDEOIO_PRIORITY_GSTREAMER'] = '1'
+os.environ['OPENCV_VIDEOIO_DEBUG'] = '0'
+# Disable problematic CUDA optimizations on Jetson
+if 'jetson' in platform.processor().lower() or os.path.exists('/etc/nv_tegra_release'):
+    os.environ['CUDA_MODULE_LOADING'] = 'LAZY'
+    torch.backends.cudnn.enabled = True
+    torch.backends.cudnn.benchmark = False  # Disable for stability on Jetson
+    torch.backends.cudnn.deterministic = True
+else:
+    # Enable CUDA optimizations for other platforms
+    torch.backends.cudnn.benchmark = True
 
 # Global model instances for reuse (singleton pattern)
 _global_detector = None
@@ -35,117 +47,189 @@ class BlindSpotDetector:
     """Blind Spot Detection using YOLO and MiDaS depth estimation"""
     
     def __init__(self, device=None):
-        print(f" Loading Blind Spot Detection models (JETSON NANO OPTIMIZED)...")
+        print(f"🚀 Loading Blind Spot Detection models (JETSON ORIN OPTIMIZED)...")
         start_time = time.time()
         
-        self.device = device or ('cuda' if torch.cuda.is_available() else 'cpu')
-        
-        # Detect if running on Jetson Nano
+        # Detect if running on Jetson device
         self.is_jetson = self._detect_jetson()
         
-        # Load YOLO with optimizations for Jetson Nano
-        self.yolo = YOLO("yolov8n.pt")  # Nano model - fastest
-        
-        if self.is_jetson:
-            # Jetson Nano optimizations
-            print("    Jetson Nano detected - Ultra optimized settings")
-            self.yolo_img_size = 320  # Good balance for Jetson
-            self.conf_threshold = 0.3  # Lower confidence for faster NMS
-            self.iou_threshold = 0.7   # Higher IoU for faster NMS
-            self.frame_skip = 4        # Process every 4th frame (7.5 FPS AI)
+        # Set device with proper error handling
+        if device:
+            self.device = device
+        elif torch.cuda.is_available() and self.is_jetson:
+            self.device = 'cuda'
+            print("✓ CUDA available on Jetson")
         else:
-            # Windows CPU optimizations - AGGRESSIVE FOR SMOOTH PERFORMANCE
-            print("    Windows CPU detected - Maximum optimization settings")
-            self.yolo_img_size = YOLO_INPUT_W  # Use 320px for CPU (good balance)
-            self.conf_threshold = 0.3  # Lower confidence for faster detection
-            self.iou_threshold = 0.7   # Higher IoU for faster NMS
-            self.frame_skip = 3        # Process every 3rd frame (10 FPS AI)
+            self.device = 'cpu'
+            print("⚠️ Using CPU mode")
+        
+        try:
+            # Load YOLO model path from config
+            from app.config import Config
+            yolo_model_path = Config.YOLO_MODEL_PATH
             
-            # Fuse model for CPU optimization
-            try:
-                self.yolo.fuse()  # Optimize model for inference speed
-                print("   YOLO model fused for CPU optimization")
-            except:
-                print("   Model fusion not available")
+            # Check if model file exists
+            if not os.path.exists(yolo_model_path):
+                print(f"⚠️ Model file not found: {yolo_model_path}")
+                print(f"   Falling back to default yolov8n.pt")
+                yolo_model_path = "yolov8n.pt"
+            
+            # Determine model type from file extension
+            model_extension = os.path.splitext(yolo_model_path)[1].lower()
+            
+            # Load YOLO with optimizations for Jetson or Windows
+            if self.is_jetson:
+                print(f"   Jetson detected - Loading YOLO model: {yolo_model_path}")
+                
+                if model_extension == '.engine':
+                    # TensorRT engine for maximum Jetson performance
+                    print("   ✓ Loading TensorRT engine (optimized for Jetson)")
+                    self.yolo = YOLO(yolo_model_path, task='detect')
+                else:
+                    # PyTorch model fallback
+                    print("   ⚠️ Loading PyTorch model (consider converting to .engine for better performance)")
+                    self.yolo = YOLO(yolo_model_path)
+                
+                # Jetson optimizations
+                self.yolo_img_size = 256  # Smaller for Orin Nano stability
+                self.conf_threshold = 0.35  # Balanced confidence
+                self.iou_threshold = 0.7   # Higher IoU for faster NMS
+                self.frame_skip = 5        # Process every 5th frame (6 FPS AI)
+                
+                print(f"   ✓ Jetson mode: {self.yolo_img_size}px input, conf={self.conf_threshold}, skip={self.frame_skip}")
+            else:
+                # Windows/Linux CPU optimizations
+                print(f"   Loading YOLO model for CPU: {yolo_model_path}")
+                self.yolo = YOLO(yolo_model_path)
+                
+                self.yolo_img_size = YOLO_INPUT_W  # Use 320px for CPU
+                self.conf_threshold = 0.3
+                self.iou_threshold = 0.7
+                self.frame_skip = 3  # Process every 3rd frame
+                
+                # Fuse model for CPU optimization (only for PyTorch models)
+                if model_extension == '.pt':
+                    try:
+                        self.yolo.fuse()
+                        print("   ✓ YOLO model fused for CPU optimization")
+                    except:
+                        print("   ⚠️ Model fusion not available")
+                
+                print(f"   ✓ PC mode: {self.yolo_img_size}px input, conf={self.conf_threshold}")
+            
+            # Warm-up YOLO (prevents first-frame crash on Jetson)
+            if self.is_jetson:
+                try:
+                    print("🔥 Warming up YOLO model...")
+                    dummy_frame = np.zeros((480, 640, 3), dtype=np.uint8)
+                    _ = self.detect_vehicles_only(dummy_frame)
+                    gc.collect()
+                    if self.device == 'cuda':
+                        torch.cuda.empty_cache()
+                    print("✓ YOLO warmed up successfully")
+                except Exception as e:
+                    print(f"⚠️ Warm-up failed: {e}")
+            
+        except Exception as e:
+            print(f"❌ Error loading YOLO: {e}")
+            raise
         
         # SKIP MiDaS for performance - use YOLO-only detection
         self.use_depth = False
         
         load_time = time.time() - start_time
-        print(f"Models loaded in {load_time:.2f}s on {self.device}")
-        if self.is_jetson:
-            print(f"   Jetson Nano ready: {self.yolo_img_size}px input, conf={self.conf_threshold}")
-        else:
-            print(f"   💻 PC ready: {self.yolo_img_size}px input, conf={self.conf_threshold}")
+        print(f"✓ Models loaded in {load_time:.2f}s on {self.device}")
     
     def _detect_jetson(self):
-        """Detect if running on Jetson Nano"""
+        """Detect if running on Jetson device (Nano, Orin, Xavier, etc.)"""
         try:
-            with open('/proc/device-tree/model', 'r') as f:
-                model = f.read().lower()
-                return 'jetson' in model or 'tegra' in model
-        except:
-            # Alternative detection methods
+            # Primary method: Check device tree model
+            if os.path.exists('/proc/device-tree/model'):
+                with open('/proc/device-tree/model', 'r') as f:
+                    model = f.read().lower()
+                    if 'jetson' in model or 'tegra' in model:
+                        return True
+            
+            # Secondary method: Check for Tegra release file
+            if os.path.exists('/etc/nv_tegra_release'):
+                return True
+            
+            # Tertiary method: Check for NVIDIA SoC
             try:
                 import subprocess
-                result = subprocess.check_output(['cat', '/etc/nv_tegra_release'], 
+                result = subprocess.check_output(['cat', '/proc/cpuinfo'], 
                                                stderr=subprocess.DEVNULL, text=True)
-                return 'tegra' in result.lower()
+                if 'tegra' in result.lower() or 'nvidia' in result.lower():
+                    return True
             except:
-                return False
+                pass
+            
+            return False
+        except:
+            return False
     
     def detect_vehicles_only(self, frame):
         """Optimized YOLO inference - MEMORY LEAK PREVENTION"""
-        # YOLO inference with optimized parameters
-        with torch.no_grad():  # Prevent gradient accumulation
-            if self.is_jetson:
-                # Jetson Nano: Use half precision for speed
-                results = self.yolo.predict(
-                    frame, 
-                    imgsz=self.yolo_img_size,
-                    conf=self.conf_threshold,
-                    iou=self.iou_threshold,
-                    verbose=False,
-                    half=True,  # FP16 for Jetson
-                    device=self.device,
-                    save=False,  # Don't save results to disk
-                    stream=True  # Stream results for memory efficiency
-                )
-                results = next(results)  # Get first result from stream
-            else:
-                # Windows CPU: Optimized for maximum speed
-                results = self.yolo.predict(
-                    frame,
-                    imgsz=self.yolo_img_size, 
-                    conf=self.conf_threshold,
-                    iou=self.iou_threshold,
-                    verbose=False,
-                    half=False,  # CPU doesn't benefit from FP16
-                    device='cpu',  # Force CPU for consistency
-                    classes=VEHICLE_CLASSES,  # Only detect vehicles (faster)
-                    save=False,  # Don't save results to disk
-                    stream=True  # Stream results for memory efficiency
-                )
-                results = next(results)  # Get first result from stream
-        
-        # Extract vehicle detections only
-        detections = []
-        if results.boxes is not None and len(results.boxes) > 0:
-            for box in results.boxes:
-                cls = int(box.cls[0])
-                if cls in VEHICLE_CLASSES:
-                    x1, y1, x2, y2 = box.xyxy[0]
-                    confidence = float(box.conf[0])
-                    detections.append({
-                        'bbox': [float(x1), float(y1), float(x2), float(y2)],
-                        'confidence': confidence,
-                        'class': cls
-                    })
-        
-        # Explicit cleanup
-        del results
-        
-        return detections
+        try:
+            # YOLO inference with optimized parameters
+            with torch.no_grad():  # Prevent gradient accumulation
+                if self.is_jetson:
+                    # Jetson: Use FP16 for speed, stream for memory efficiency
+                    results = self.yolo.predict(
+                        frame, 
+                        imgsz=self.yolo_img_size,
+                        conf=self.conf_threshold,
+                        iou=self.iou_threshold,
+                        verbose=False,
+                        half=True,  # FP16 for Jetson
+                        device=self.device,
+                        save=False,  # Don't save results to disk
+                        stream=True,  # Stream results for memory efficiency
+                        classes=VEHICLE_CLASSES,  # Only detect vehicles
+                        agnostic_nms=True  # Faster NMS
+                    )
+                    results = next(results)  # Get first result from stream
+                else:
+                    # Windows/Linux CPU: Optimized for maximum speed
+                    results = self.yolo.predict(
+                        frame,
+                        imgsz=self.yolo_img_size, 
+                        conf=self.conf_threshold,
+                        iou=self.iou_threshold,
+                        verbose=False,
+                        half=False,  # CPU doesn't benefit from FP16
+                        device='cpu',  # Force CPU for consistency
+                        classes=VEHICLE_CLASSES,  # Only detect vehicles (faster)
+                        save=False,  # Don't save results to disk
+                        stream=True,  # Stream results for memory efficiency
+                        agnostic_nms=True  # Faster NMS
+                    )
+                    results = next(results)  # Get first result from stream
+            
+            # Extract vehicle detections only
+            detections = []
+            if results.boxes is not None and len(results.boxes) > 0:
+                for box in results.boxes:
+                    cls = int(box.cls[0])
+                    if cls in VEHICLE_CLASSES:
+                        x1, y1, x2, y2 = box.xyxy[0]
+                        confidence = float(box.conf[0])
+                        detections.append({
+                            'bbox': [float(x1), float(y1), float(x2), float(y2)],
+                            'confidence': confidence,
+                            'class': cls
+                        })
+            
+            # Explicit cleanup (critical for Jetson stability)
+            del results
+            if self.is_jetson and self.device == 'cuda':
+                torch.cuda.empty_cache()
+            
+            return detections
+            
+        except Exception as e:
+            print(f"❌ YOLO detection error: {e}")
+            return []
     
     def draw_side_mirror_grid(self, frame, color, is_left=True):
         """ULTRA SIMPLE blind spot detection area - MAXIMUM SPEED"""
@@ -286,8 +370,44 @@ class DualCameraManager:
                 return False
     
     def _get_jetson_camera_pipeline(self, camera_id=0):
-        """Get optimized GStreamer pipeline for Jetson Nano"""
-        # CSI Camera (Raspberry Pi Camera Module)
+        """Get optimized GStreamer pipeline for Jetson Orin/Nano"""
+        # CSI Camera (best performance) - optimized for Jetson Orin
+        gst_csi = (
+            f"nvarguscamerasrc sensor-id={camera_id} ! "
+            "video/x-raw(memory:NVMM), width=640, height=480, framerate=30/1, format=NV12 ! "
+            "nvvidconv ! "
+            "video/x-raw, width=480, height=270, format=BGRx ! "
+            "videoconvert ! "
+            "video/x-raw, format=BGR ! "
+            "appsink drop=true max-buffers=2 sync=false"
+        )
+        
+        # USB Camera with MJPEG decoding (faster on Jetson)
+        gst_usb_mjpeg = (
+            f"v4l2src device=/dev/video{camera_id} io-mode=2 ! "
+            "image/jpeg, width=640, height=480, framerate=30/1 ! "
+            "jpegdec ! "
+            "videoscale ! "
+            "video/x-raw, width=480, height=270 ! "
+            "videoconvert ! "
+            "video/x-raw, format=BGR ! "
+            "appsink drop=true max-buffers=2 sync=false"
+        )
+        
+        # USB Camera fallback (simple)
+        gst_usb_simple = (
+            f"v4l2src device=/dev/video{camera_id} ! "
+            "video/x-raw, width=480, height=270, framerate=30/1 ! "
+            "videoconvert ! "
+            "video/x-raw, format=BGR ! "
+            "appsink drop=true max-buffers=2 sync=false"
+        )
+        
+        return [
+            (gst_csi, cv2.CAP_GSTREAMER),
+            (gst_usb_mjpeg, cv2.CAP_GSTREAMER),
+            (gst_usb_simple, cv2.CAP_GSTREAMER)
+        ]
         csi_pipeline = (
             f"nvarguscamerasrc sensor-id={camera_id} ! "
             f"video/x-raw(memory:NVMM), width={FRAME_W}, height={FRAME_H}, framerate=30/1, format=NV12 ! "

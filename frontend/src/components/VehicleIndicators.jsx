@@ -14,11 +14,11 @@ const VehicleIndicators = ({ leftTurnActive = false, rightTurnActive = false }) 
   return (
     <>
       {/* Left Side Indicators - Top Left Arc */}
-      <div className="absolute left-10 sm:left-16 top-16 sm:top-2 flex items-center gap-3 sm:gap-4 z-10">
+      <div className="absolute left-10 sm:left-28 top-16 sm:top-0 flex items-center gap-3 sm:gap-4 z-10">
         {/* Left Turn Signal */}
         <div className="flex flex-col items-center" title="Left Turn Signal">
           <TbArrowBigLeftLinesFilled 
-            className={`text-xl sm:text-2xl transition-all duration-150 ${
+            className={`text-xl sm:text-4xl transition-all duration-150 ${
               leftTurnActive 
                 ? 'text-green-400 drop-shadow-[0_0_10px_rgba(74,222,128,0.8)] animate-pulse' 
                 : 'text-gray-400'
@@ -30,6 +30,11 @@ const VehicleIndicators = ({ leftTurnActive = false, rightTurnActive = false }) 
         {/* <div className="flex flex-col items-center" title="Fog Light Front">
           <TbMist className="text-gray-400 text-xl sm:text-2xl" />
         </div> */}
+        <div className="flex flex-col items-center" title="Parking Brake">
+          <div className="text-gray-400 text-base sm:text-xl font-bold border-2 border-gray-400 rounded-full w-6 h-6 sm:w-8 sm:h-8 flex items-center justify-center">
+            P
+          </div>
+        </div>
         
         {/* High Beam */}
         {/* <div className="flex flex-col items-center" title="High Beam">
@@ -43,33 +48,17 @@ const VehicleIndicators = ({ leftTurnActive = false, rightTurnActive = false }) 
       </div>
 
       {/* Right Side Indicators - Top Right Arc */}
-      <div className="absolute right-12 sm:right-2 top-16 sm:top-2 flex items-center gap-3 sm:gap-4 z-10">
-        {/* Parking Brake */}
-        <div className="flex flex-col items-center" title="Parking Brake">
-          <div className="text-gray-400 text-base sm:text-xl font-bold border-2 border-gray-400 rounded-full w-6 h-6 sm:w-8 sm:h-8 flex items-center justify-center">
-            P
-          </div>
-        </div>
-        
-        {/* ABS */}
-        {/* <div className="flex flex-col items-center" title="ABS">
-          <BsFillExclamationOctagonFill className="text-gray-400 text-xl sm:text-2xl" />
-        </div> */}
-        
-        {/* Airbag */}
-        {/* <div className="flex flex-col items-center" title="Airbag">
-          <RiCarWashingFill className="text-gray-400 text-xl sm:text-2xl" />
-        </div> */}
+      <div className="absolute right-12 sm:right-28 top-16 sm:top-0 flex items-center gap-3 sm:gap-4 z-10">
         
         {/* Seatbelt */}
         <div className="flex flex-col items-center" title="Seatbelt">
-          <PiSeatbeltFill className="text-gray-400 text-xl sm:text-2xl" />
+          <PiSeatbeltFill className="text-gray-400 text-xl sm:text-3xl" />
         </div>
         
         {/* Right Turn Signal */}
         <div className="flex flex-col items-center" title="Right Turn Signal">
           <TbArrowBigRightLinesFilled 
-            className={`text-xl sm:text-2xl transition-all duration-150 ${
+            className={`text-xl sm:text-4xl transition-all duration-150 ${
               rightTurnActive 
                 ? 'text-green-400 drop-shadow-[0_0_10px_rgba(74,222,128,0.8)] animate-pulse' 
                 : 'text-gray-400'
