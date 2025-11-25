@@ -27,19 +27,19 @@ const VehicleIndicators = ({ leftTurnActive = false, rightTurnActive = false }) 
         </div>
         
         {/* Fog Light Front */}
-        <div className="flex flex-col items-center" title="Fog Light Front">
+        {/* <div className="flex flex-col items-center" title="Fog Light Front">
           <TbMist className="text-gray-400 text-xl sm:text-2xl" />
-        </div>
+        </div> */}
         
         {/* High Beam */}
-        <div className="flex flex-col items-center" title="High Beam">
+        {/* <div className="flex flex-col items-center" title="High Beam">
           <TbBulb className="text-gray-400 text-xl sm:text-2xl" />
-        </div>
+        </div> */}
         
         {/* Low Beam */}
-        <div className="flex flex-col items-center" title="Low Beam">
+        {/* <div className="flex flex-col items-center" title="Low Beam">
           <MdBrightnessMedium className="text-gray-400 text-xl sm:text-2xl" />
-        </div>
+        </div> */}
       </div>
 
       {/* Right Side Indicators - Top Right Arc */}
@@ -52,14 +52,14 @@ const VehicleIndicators = ({ leftTurnActive = false, rightTurnActive = false }) 
         </div>
         
         {/* ABS */}
-        <div className="flex flex-col items-center" title="ABS">
+        {/* <div className="flex flex-col items-center" title="ABS">
           <BsFillExclamationOctagonFill className="text-gray-400 text-xl sm:text-2xl" />
-        </div>
+        </div> */}
         
         {/* Airbag */}
-        <div className="flex flex-col items-center" title="Airbag">
+        {/* <div className="flex flex-col items-center" title="Airbag">
           <RiCarWashingFill className="text-gray-400 text-xl sm:text-2xl" />
-        </div>
+        </div> */}
         
         {/* Seatbelt */}
         <div className="flex flex-col items-center" title="Seatbelt">

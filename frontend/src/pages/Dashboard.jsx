@@ -219,7 +219,7 @@ const Dashboard = ({ onSelectUseCase }) => {
 
               {/* Right - Battery Meter - Always visible */}
               <div className="w-full max-w-[380px] shrink-0 flex justify-center">
-                {/* <BatteryMeter value={battery} /> */}
+                <BatteryMeter value={battery} />
               </div>
             </div>
 
