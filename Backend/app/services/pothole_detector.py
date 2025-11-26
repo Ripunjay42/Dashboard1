@@ -475,10 +475,10 @@ class VideoStreamManager:
         self.detection_persistence = 5  # Instant clear (5 frames = ~167ms)
         
         # Performance settings (Adaptive for CUDA/CPU)
-        # OPTIMIZED FOR JETSON: Lower quality for smoother streaming
+        # ULTRA OPTIMIZED FOR JETSON: Very low quality for maximum smoothness
         if hasattr(self.detector, 'is_jetson') and self.detector.is_jetson:
             if self.detector.device == 'cuda':
-                self.jpeg_quality = 55  # CUDA on Jetson: Balanced for real-time streaming
+                self.jpeg_quality = 40  # Very low quality for maximum speed
             else:
                 self.jpeg_quality = 50  # CPU: Lower for speed
         else:
@@ -604,10 +604,9 @@ class VideoStreamManager:
             
             frame_counter += 1
             
-            # CRITICAL: Frame skipping for Jetson to reduce lag
-            # Process every other frame = 15 FPS (smooth enough, much less lag)
+            # ULTRA AGGRESSIVE: Skip 2 out of 3 frames = 10 FPS for Jetson
             if hasattr(self.detector, 'is_jetson') and self.detector.is_jetson:
-                if frame_counter % 2 != 0:
+                if frame_counter % 3 != 0:
                     continue
             
             # Save raw frame for AI thread + get latest mask (single lock)
@@ -625,7 +624,7 @@ class VideoStreamManager:
             
             # Resize for Jetson (smaller = faster encoding)
             if hasattr(self.detector, 'is_jetson') and self.detector.is_jetson:
-                overlay_frame = cv2.resize(overlay_frame, (480, 360), interpolation=cv2.INTER_LINEAR)
+                overlay_frame = cv2.resize(overlay_frame, (320, 240), interpolation=cv2.INTER_NEAREST)
             
             # Fast JPEG encoding with optimization flag
             encode_param = [

@@ -719,9 +719,8 @@ class DualCameraManager:
             
             frame_counter += 1
             
-            # CRITICAL: Frame skipping for Jetson to reduce encoding load
-            # Skip every other frame = 15 FPS (still smooth, much less lag)
-            if self.is_jetson and frame_counter % 2 != 0:
+            # ULTRA AGGRESSIVE: Skip 2 out of 3 frames = 10 FPS (max smooth, min lag)
+            if self.is_jetson and frame_counter % 3 != 0:
                 del frame
                 continue
             
@@ -740,12 +739,12 @@ class DualCameraManager:
             color = (0, 0, 255) if danger else (0, 255, 0)
             self.detector.draw_side_mirror_grid(frame, color, is_left=True)
             
-            # AGGRESSIVE Jetson optimization - Lower resolution for smooth streaming
+            # ULTRA AGGRESSIVE Jetson optimization - Minimum resolution for maximum speed
             if self.is_jetson:
-                encode_size = (320, 180)   # Much smaller for Jetson (was 480x270)
-                encode_quality = 50        # Lower quality for maximum speed
+                encode_size = (240, 135)   # Very small (10 FPS is enough)
+                encode_quality = 40        # Lower quality for maximum speed
             else:
-                encode_size = (400, 225)   # Smaller for CPU
+                encode_size = (400, 225)
                 encode_quality = 50
             
             frame_resized = cv2.resize(frame, encode_size, interpolation=cv2.INTER_LINEAR)
@@ -784,9 +783,8 @@ class DualCameraManager:
             
             frame_counter += 1
             
-            # CRITICAL: Frame skipping for Jetson to reduce encoding load
-            # Skip every other frame = 15 FPS (still smooth, much less lag)
-            if self.is_jetson and frame_counter % 2 != 0:
+            # ULTRA AGGRESSIVE: Skip 2 out of 3 frames = 10 FPS (max smooth, min lag)
+            if self.is_jetson and frame_counter % 3 != 0:
                 del frame
                 continue
             
@@ -805,12 +803,12 @@ class DualCameraManager:
             color = (0, 0, 255) if danger else (0, 255, 0)
             self.detector.draw_side_mirror_grid(frame, color, is_left=False)
             
-            # AGGRESSIVE Jetson optimization - Lower resolution for smooth streaming
+            # ULTRA AGGRESSIVE Jetson optimization - Minimum resolution for maximum speed
             if self.is_jetson:
-                encode_size = (320, 180)   # Much smaller for Jetson (was 480x270)
-                encode_quality = 50        # Lower quality for maximum speed
+                encode_size = (240, 135)   # Very small (10 FPS is enough)
+                encode_quality = 40        # Lower quality for maximum speed
             else:
-                encode_size = (400, 225)   # Smaller for CPU
+                encode_size = (400, 225)
                 encode_quality = 50
             
             frame_resized = cv2.resize(frame, encode_size, interpolation=cv2.INTER_LINEAR)
