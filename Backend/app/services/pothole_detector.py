@@ -382,18 +382,28 @@ def get_camera_pipeline(camera_id=0):
             "appsink drop=true max-buffers=1 sync=false"
         )
         
-        # USB camera with MJPEG - FASTEST! (hardware compressed)
-        # Your camera supports MJPEG at 640x480@30fps
+        # USB camera with MJPEG - OPTIMIZED for your camera (640x480@30fps)
+        # Hardware compressed MJPEG = 40MB/s vs YUYV = 590MB/s (15x less!)
         gst_usb_mjpeg = (
             f"v4l2src device=/dev/video{camera_id} ! "
             "image/jpeg,width=640,height=480,framerate=30/1 ! "
-            "jpegdec ! "
+            "nvjpegdec ! "  # Hardware JPEG decode on Jetson
             "videoconvert ! "
             "video/x-raw,format=BGR ! "
             "appsink drop=true max-buffers=1 sync=false"
         )
         
-        # Fallback: YUYV format (slower, software decompression)
+        # Fallback 1: Software JPEG decode (if nvjpegdec not available)
+        gst_usb_mjpeg_sw = (
+            f"v4l2src device=/dev/video{camera_id} ! "
+            "image/jpeg,width=640,height=480,framerate=30/1 ! "
+            "jpegdec ! "  # Software JPEG decode (slower but works)
+            "videoconvert ! "
+            "video/x-raw,format=BGR ! "
+            "appsink drop=true max-buffers=1 sync=false"
+        )
+        
+        # Fallback 2: YUYV format (slowest, avoid if possible)
         gst_usb_yuyv = (
             f"v4l2src device=/dev/video{camera_id} ! "
             "video/x-raw,format=YUY2,width=640,height=480,framerate=30/1 ! "
@@ -405,6 +415,7 @@ def get_camera_pipeline(camera_id=0):
         return [
             (gst_csi, cv2.CAP_GSTREAMER),
             (gst_usb_mjpeg, cv2.CAP_GSTREAMER),
+            (gst_usb_mjpeg_sw, cv2.CAP_GSTREAMER),
             (gst_usb_yuyv, cv2.CAP_GSTREAMER),
             (camera_id, cv2.CAP_V4L2)
         ]

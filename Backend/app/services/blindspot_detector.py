@@ -381,8 +381,8 @@ class DualCameraManager:
                 return False
     
     def _get_jetson_camera_pipeline(self, camera_id=0):
-        """Get optimized GStreamer pipeline for Jetson Orin/Nano - FIXED VERSION"""
-        # CSI Camera (best performance)
+        """Get optimized GStreamer pipeline for Jetson Orin/Nano - MJPEG OPTIMIZED"""
+        # CSI Camera (best performance, if available)
         gst_csi = (
             f"nvarguscamerasrc sensor-id={camera_id} ! "
             "video/x-raw(memory:NVMM),width=640,height=480,framerate=30/1,format=NV12 ! "
@@ -393,11 +393,12 @@ class DualCameraManager:
             "appsink drop=true max-buffers=1 sync=false"
         )
         
-        # USB Camera with MJPEG - FIXED: Removed io-mode=2 and spaces in caps
-        gst_usb_mjpeg = (
+        # USB Camera with MJPEG - Hardware decode (BEST for Jetson)
+        # Your camera supports MJPEG @ 640x480 @ 30fps
+        gst_usb_mjpeg_hw = (
             f"v4l2src device=/dev/video{camera_id} ! "
             "image/jpeg,width=640,height=480,framerate=30/1 ! "
-            "jpegdec ! "
+            "nvjpegdec ! "  # Hardware JPEG decoder (Jetson accelerated)
             "videoscale ! "
             "video/x-raw,width=480,height=270 ! "
             "videoconvert ! "
@@ -405,7 +406,19 @@ class DualCameraManager:
             "appsink drop=true max-buffers=1 sync=false"
         )
         
-        # USB Camera with YUYV format (uncompressed fallback)
+        # USB Camera with MJPEG - Software decode (fallback)
+        gst_usb_mjpeg_sw = (
+            f"v4l2src device=/dev/video{camera_id} ! "
+            "image/jpeg,width=640,height=480,framerate=30/1 ! "
+            "jpegdec ! "  # Software JPEG decoder (works everywhere)
+            "videoscale ! "
+            "video/x-raw,width=480,height=270 ! "
+            "videoconvert ! "
+            "video/x-raw,format=BGR ! "
+            "appsink drop=true max-buffers=1 sync=false"
+        )
+        
+        # USB Camera with YUYV format (slowest, last resort)
         gst_usb_yuyv = (
             f"v4l2src device=/dev/video{camera_id} ! "
             "video/x-raw,format=YUY2,width=640,height=480,framerate=30/1 ! "
@@ -418,7 +431,8 @@ class DualCameraManager:
         
         return [
             (gst_csi, cv2.CAP_GSTREAMER),
-            (gst_usb_mjpeg, cv2.CAP_GSTREAMER),
+            (gst_usb_mjpeg_hw, cv2.CAP_GSTREAMER),
+            (gst_usb_mjpeg_sw, cv2.CAP_GSTREAMER),
             (gst_usb_yuyv, cv2.CAP_GSTREAMER)
         ]
         csi_pipeline = (
