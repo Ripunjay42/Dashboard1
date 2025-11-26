@@ -589,8 +589,10 @@ class VideoStreamManager:
     def _video_stream_loop(self):
         """
         THREAD 1: FAST Video Streaming
-        Applies latest detection overlay and streams at 30 FPS
+        Applies latest detection overlay and streams at 15 FPS (Jetson optimized)
         """
+        frame_counter = 0
+        
         while self.is_running:
             if not self.cap or not self.cap.isOpened():
                 break
@@ -599,6 +601,14 @@ class VideoStreamManager:
             if not ret:
                 time.sleep(0.001)
                 continue
+            
+            frame_counter += 1
+            
+            # CRITICAL: Frame skipping for Jetson to reduce lag
+            # Process every other frame = 15 FPS (smooth enough, much less lag)
+            if hasattr(self.detector, 'is_jetson') and self.detector.is_jetson:
+                if frame_counter % 2 != 0:
+                    continue
             
             # Save raw frame for AI thread + get latest mask (single lock)
             with self.lock:
@@ -612,6 +622,10 @@ class VideoStreamManager:
                 overlay_frame = cv2.addWeighted(frame, 0.7, color_mask, 0.3, 0)
             else:
                 overlay_frame = frame
+            
+            # Resize for Jetson (smaller = faster encoding)
+            if hasattr(self.detector, 'is_jetson') and self.detector.is_jetson:
+                overlay_frame = cv2.resize(overlay_frame, (480, 360), interpolation=cv2.INTER_LINEAR)
             
             # Fast JPEG encoding with optimization flag
             encode_param = [
