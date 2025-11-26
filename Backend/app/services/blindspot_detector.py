@@ -719,10 +719,8 @@ class DualCameraManager:
             
             frame_counter += 1
             
-            # ULTRA AGGRESSIVE: Skip 2 out of 3 frames = 10 FPS (max smooth, min lag)
-            if self.is_jetson and frame_counter % 3 != 0:
-                del frame
-                continue
+            # NO FRAME SKIPPING - Process all frames to avoid buffer buildup
+            # CAP_PROP_BUFFERSIZE=1 ensures we get latest frame with minimal lag
             
             # Prevent counter overflow
             if frame_counter > 1000000:
@@ -739,15 +737,15 @@ class DualCameraManager:
             color = (0, 0, 255) if danger else (0, 255, 0)
             self.detector.draw_side_mirror_grid(frame, color, is_left=True)
             
-            # ULTRA AGGRESSIVE Jetson optimization - Minimum resolution for maximum speed
+            # Optimized Jetson encoding - good balance of size/quality
             if self.is_jetson:
-                encode_size = (240, 135)   # Very small (10 FPS is enough)
-                encode_quality = 40        # Lower quality for maximum speed
+                encode_size = (400, 225)   # Reasonable size
+                encode_quality = 60        # Good quality
             else:
                 encode_size = (400, 225)
-                encode_quality = 50
+                encode_quality = 60
             
-            frame_resized = cv2.resize(frame, encode_size, interpolation=cv2.INTER_LINEAR)
+            frame_resized = cv2.resize(frame, encode_size, interpolation=cv2.INTER_AREA)
             ret_encode, buffer = cv2.imencode('.jpg', frame_resized, 
                                               [cv2.IMWRITE_JPEG_QUALITY, encode_quality,
                                                cv2.IMWRITE_JPEG_OPTIMIZE, 1])  # Fast encoding
@@ -783,10 +781,8 @@ class DualCameraManager:
             
             frame_counter += 1
             
-            # ULTRA AGGRESSIVE: Skip 2 out of 3 frames = 10 FPS (max smooth, min lag)
-            if self.is_jetson and frame_counter % 3 != 0:
-                del frame
-                continue
+            # NO FRAME SKIPPING - Process all frames to avoid buffer buildup
+            # CAP_PROP_BUFFERSIZE=1 ensures we get latest frame with minimal lag
             
             # Prevent counter overflow
             if frame_counter > 1000000:
@@ -803,15 +799,15 @@ class DualCameraManager:
             color = (0, 0, 255) if danger else (0, 255, 0)
             self.detector.draw_side_mirror_grid(frame, color, is_left=False)
             
-            # ULTRA AGGRESSIVE Jetson optimization - Minimum resolution for maximum speed
+            # Optimized Jetson encoding - good balance of size/quality
             if self.is_jetson:
-                encode_size = (240, 135)   # Very small (10 FPS is enough)
-                encode_quality = 40        # Lower quality for maximum speed
+                encode_size = (400, 225)   # Reasonable size
+                encode_quality = 60        # Good quality
             else:
                 encode_size = (400, 225)
-                encode_quality = 50
+                encode_quality = 60
             
-            frame_resized = cv2.resize(frame, encode_size, interpolation=cv2.INTER_LINEAR)
+            frame_resized = cv2.resize(frame, encode_size, interpolation=cv2.INTER_AREA)
             ret_encode, buffer = cv2.imencode('.jpg', frame_resized, 
                                               [cv2.IMWRITE_JPEG_QUALITY, encode_quality,
                                                cv2.IMWRITE_JPEG_OPTIMIZE, 1])  # Fast encoding
