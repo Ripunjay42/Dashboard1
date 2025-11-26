@@ -42,12 +42,29 @@ class PotholeDetector:
         # Detect Jetson device
         self.is_jetson = self._detect_jetson()
         
-        # Set device with proper error handling
+        # Set device with proper error handling and memory checks
         if device:
             self.device = device
         elif torch.cuda.is_available() and self.is_jetson:
-            self.device = 'cuda'
-            print("✓ CUDA available on Jetson Orin Nano")
+            # Check if CUDA has enough memory before attempting to use it
+            try:
+                # Clear any cached memory first
+                torch.cuda.empty_cache()
+                
+                # Try to allocate a small test tensor to verify CUDA works
+                test_tensor = torch.zeros((1, 3, 64, 64), device='cuda')
+                del test_tensor
+                torch.cuda.empty_cache()
+                
+                self.device = 'cuda'
+                print("✓ CUDA available on Jetson Orin Nano")
+                
+                # Set memory fraction to prevent OOM (use max 80% of GPU memory)
+                torch.cuda.set_per_process_memory_fraction(0.8, 0)
+            except Exception as e:
+                print(f"⚠️ CUDA memory allocation failed: {e}")
+                print("   Falling back to CPU mode")
+                self.device = 'cpu'
         else:
             self.device = 'cpu'
             print("⚠️ Using CPU mode")
@@ -121,14 +138,39 @@ class PotholeDetector:
                 # Load trained weights with error handling
                 if os.path.exists(model_path):
                     print(f"   Loading PyTorch model: {model_path}")
-                    state_dict = torch.load(model_path, map_location=self.device)
+                    
+                    # Load weights to CPU first to avoid CUDA allocation errors
+                    state_dict = torch.load(model_path, map_location='cpu')
                     self.model.load_state_dict(state_dict)
                     print(f"✓ PyTorch model weights loaded from {model_path}")
                 else:
                     print(f"⚠️ Warning: Model file not found at {model_path}")
                 
-                # Move to device AFTER loading weights (prevents segfault)
-                self.model = self.model.to(self.device)
+                # Move to device AFTER loading weights with proper error handling
+                try:
+                    if self.device == 'cuda':
+                        # Clear cache before moving model
+                        torch.cuda.empty_cache()
+                        
+                        # Move model to CUDA
+                        self.model = self.model.to(self.device)
+                        print(f"✓ Model moved to CUDA successfully")
+                        
+                        # Clear cache again after model transfer
+                        torch.cuda.empty_cache()
+                    else:
+                        self.model = self.model.to(self.device)
+                        
+                except RuntimeError as e:
+                    print(f"❌ Failed to move model to CUDA: {e}")
+                    print("   Falling back to CPU mode")
+                    self.device = 'cpu'
+                    self.model = self.model.to('cpu')
+                    # Update input size for CPU mode
+                    if self.is_jetson:
+                        self.input_size = (64, 64)
+                        print(f"   Using CPU-optimized input size: {self.input_size}")
+                
                 self.model.eval()
                 
                 # Disable gradient computation globally for this model
@@ -148,17 +190,29 @@ class PotholeDetector:
         ])
         
         # Warm-up inference (prevents first-frame crash on Jetson)
-        if self.is_jetson:
+        if self.is_jetson and self.device == 'cuda':
             try:
-                print("🔥 Warming up model...")
-                dummy_frame = np.zeros((480, 640, 3), dtype=np.uint8)
+                print("🔥 Warming up CUDA model...")
+                
+                # Small dummy frame for warm-up (reduces memory usage)
+                dummy_frame = np.zeros((240, 320, 3), dtype=np.uint8)
+                
+                # Clear cache before warm-up
+                torch.cuda.empty_cache()
+                
+                # Run warm-up inference
                 _ = self.detect(dummy_frame)
+                
+                # Aggressive cleanup after warm-up
                 gc.collect()
-                if self.device == 'cuda':
-                    torch.cuda.empty_cache()
-                print("✓ Model warmed up successfully")
+                torch.cuda.empty_cache()
+                
+                print("✓ CUDA model warmed up successfully")
             except Exception as e:
                 print(f"⚠️ Warm-up failed: {e}")
+                print("   This is normal, model will work during actual inference")
+        elif self.is_jetson:
+            print("⚠️ Skipping warm-up (CPU mode)")
         
         load_time = time.time() - start_time
         print(f"✓ Model loaded in {load_time:.2f}s on {self.device}")
