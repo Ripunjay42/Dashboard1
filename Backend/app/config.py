@@ -24,8 +24,11 @@ class Config:
         YOLO_MODEL_PATH = os.environ.get('YOLO_MODEL_PATH') or 'yolov8n.pt'  # Will use from Backend/ folder
     
     # Camera configuration
+    #  IMPORTANT: On Jetson, USB cameras use indices 0, 2, 4 (not 0, 1, 2)
+    # Each camera creates 2 device nodes (/dev/video0+1, /dev/video2+3, /dev/video4+5)
     CAMERA_ID = int(os.environ.get('CAMERA_ID', 0))  # Camera 0 for pothole detection
     
-    # Blind spot detection camera IDs
-    LEFT_CAMERA_ID = int(os.environ.get('LEFT_CAMERA_ID', 1))   # Camera 1 for left blind spot
-    RIGHT_CAMERA_ID = int(os.environ.get('RIGHT_CAMERA_ID', 2))  # Camera 2 for right blind spot
+    # Blind spot detection camera IDs - CORRECTED FOR JETSON
+    LEFT_CAMERA_ID = int(os.environ.get('LEFT_CAMERA_ID', 2))   # Camera 2 for left blind spot
+    RIGHT_CAMERA_ID = int(os.environ.get('RIGHT_CAMERA_ID', 4))  # Camera 4 for right blind spot
+
