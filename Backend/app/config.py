@@ -27,5 +27,5 @@ class Config:
     CAMERA_ID = int(os.environ.get('CAMERA_ID', 0))  # Camera 0 for pothole detection
     
     # Blind spot detection camera IDs
-    LEFT_CAMERA_ID = int(os.environ.get('LEFT_CAMERA_ID', 0))   # Camera 1 for left blind spot
-    RIGHT_CAMERA_ID = int(os.environ.get('RIGHT_CAMERA_ID', 1))  # Camera 2 for right blind spot
+    LEFT_CAMERA_ID = int(os.environ.get('LEFT_CAMERA_ID', 1))   # Camera 1 for left blind spot
+    RIGHT_CAMERA_ID = int(os.environ.get('RIGHT_CAMERA_ID', 2))  # Camera 2 for right blind spot

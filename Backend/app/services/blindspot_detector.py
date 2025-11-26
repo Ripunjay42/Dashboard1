@@ -698,146 +698,134 @@ class DualCameraManager:
         return True
     
     def _left_video_loop(self):
-        """Left camera video thread - MEMORY LEAK PREVENTION"""
+        """Left camera video thread - OPTIMIZED FOR JETSON"""
         frame_counter = 0
-        last_cleanup = time.time()
         
         while self.running:
             if not self.left_cap or not self.left_cap.isOpened():
                 time.sleep(0.01)
                 continue
             
-            # Clear camera buffer periodically to prevent lag accumulation
-            current_time = time.time()
-            if current_time - last_cleanup > 30:  # Every 30 seconds
-                # Flush camera buffer
-                for _ in range(3):
-                    self.left_cap.read()
-                last_cleanup = current_time
-                print("Left camera buffer flushed")
-            
+            # Read latest frame (buffer=1 prevents accumulation)
             ret, frame = self.left_cap.read()
-            if not ret:
+            if not ret or frame is None:
                 time.sleep(0.001)
                 continue
             
-            # Frame skipping for Windows CPU (every other frame = 15 FPS)
             frame_counter += 1
-            if frame_counter % 2 != 0:
-                # Explicitly delete frame to free memory immediately
+            
+            # NO FRAME SKIPPING on Jetson (camera buffering is already low)
+            # Frame skipping only for non-Jetson platforms
+            if not self.is_jetson and frame_counter % 2 != 0:
                 del frame
                 continue
             
-            # Prevent frame counter overflow (memory optimization)
+            # Prevent counter overflow
             if frame_counter > 1000000:
                 frame_counter = 0
             
-            # Store frame for AI thread + get current danger status (minimal lock time)
+            # Store frame for AI thread (minimal lock time)
             with self.left_lock:
-                # Delete old frame before storing new one
                 if self.left_latest_frame is not None:
                     del self.left_latest_frame
                 self.left_latest_frame = frame.copy()
                 danger = self.left_danger
             
-            # Draw grid overlay based on current danger status
+            # Draw grid overlay
             color = (0, 0, 255) if danger else (0, 255, 0)
             self.detector.draw_side_mirror_grid(frame, color, is_left=True)
             
-            # Windows CPU optimized encoding
-            encode_size = (400, 225) if not self.is_jetson else (480, 270)
-            encode_quality = 50 if not self.is_jetson else 70
+            # Platform-specific encoding (Jetson can handle higher quality)
+            if self.is_jetson:
+                encode_size = (480, 270)   # Full size for Jetson
+                encode_quality = 60        # Lower quality for speed
+            else:
+                encode_size = (400, 225)   # Smaller for CPU
+                encode_quality = 50
             
             frame_resized = cv2.resize(frame, encode_size, interpolation=cv2.INTER_LINEAR)
-            ret_encode, buffer = cv2.imencode('.jpg', frame_resized, [cv2.IMWRITE_JPEG_QUALITY, encode_quality])
+            ret_encode, buffer = cv2.imencode('.jpg', frame_resized, 
+                                              [cv2.IMWRITE_JPEG_QUALITY, encode_quality,
+                                               cv2.IMWRITE_JPEG_OPTIMIZE, 1])  # Fast encoding
             
-            # Explicit memory cleanup
             del frame_resized
             
             if ret_encode:
                 with self.left_lock:
-                    # Delete old encoded frame before storing new one
                     if self.left_encoded is not None:
                         del self.left_encoded
                     self.left_encoded = buffer.tobytes()
-                # Delete buffer immediately after use
                 del buffer
             
-            # Performance monitoring (every 1000 frames to avoid overhead)
-            if frame_counter % 1000 == 0:
-                self._monitor_performance()
-            
-            # Delete original frame
             del frame
+            
+            # Small sleep to prevent CPU spinning (Jetson optimization)
+            time.sleep(0.001)
     
     def _right_video_loop(self):
-        """Right camera video thread - MEMORY LEAK PREVENTION"""
+        """Right camera video thread - OPTIMIZED FOR JETSON"""
         frame_counter = 0
-        last_cleanup = time.time()
         
         while self.running:
             if not self.right_cap or not self.right_cap.isOpened():
                 time.sleep(0.01)
                 continue
             
-            # Clear camera buffer periodically to prevent lag accumulation
-            current_time = time.time()
-            if current_time - last_cleanup > 30:  # Every 30 seconds
-                # Flush camera buffer
-                for _ in range(3):
-                    self.right_cap.read()
-                last_cleanup = current_time
-                print("Right camera buffer flushed")
-            
+            # Read latest frame (buffer=1 prevents accumulation)
             ret, frame = self.right_cap.read()
-            if not ret:
+            if not ret or frame is None:
                 time.sleep(0.001)
                 continue
             
-            # Frame skipping for Windows CPU (every other frame = 15 FPS)
             frame_counter += 1
-            if frame_counter % 2 != 0:
-                # Explicitly delete frame to free memory immediately
+            
+            # NO FRAME SKIPPING on Jetson (camera buffering is already low)
+            # Frame skipping only for non-Jetson platforms
+            if not self.is_jetson and frame_counter % 2 != 0:
                 del frame
                 continue
             
-            # Prevent frame counter overflow (memory optimization)
+            # Prevent counter overflow
             if frame_counter > 1000000:
                 frame_counter = 0
             
-            # Store frame for AI thread + get current danger status (minimal lock time)
+            # Store frame for AI thread (minimal lock time)
             with self.right_lock:
-                # Delete old frame before storing new one
                 if self.right_latest_frame is not None:
                     del self.right_latest_frame
                 self.right_latest_frame = frame.copy()
                 danger = self.right_danger
             
-            # Draw grid overlay based on current danger status
+            # Draw grid overlay
             color = (0, 0, 255) if danger else (0, 255, 0)
             self.detector.draw_side_mirror_grid(frame, color, is_left=False)
             
-            # Windows CPU optimized encoding
-            encode_size = (400, 225) if not self.is_jetson else (480, 270)
-            encode_quality = 50 if not self.is_jetson else 70
+            # Platform-specific encoding (Jetson can handle higher quality)
+            if self.is_jetson:
+                encode_size = (480, 270)   # Full size for Jetson
+                encode_quality = 60        # Lower quality for speed
+            else:
+                encode_size = (400, 225)   # Smaller for CPU
+                encode_quality = 50
             
             frame_resized = cv2.resize(frame, encode_size, interpolation=cv2.INTER_LINEAR)
-            ret_encode, buffer = cv2.imencode('.jpg', frame_resized, [cv2.IMWRITE_JPEG_QUALITY, encode_quality])
+            ret_encode, buffer = cv2.imencode('.jpg', frame_resized, 
+                                              [cv2.IMWRITE_JPEG_QUALITY, encode_quality,
+                                               cv2.IMWRITE_JPEG_OPTIMIZE, 1])  # Fast encoding
             
-            # Explicit memory cleanup
             del frame_resized
             
             if ret_encode:
                 with self.right_lock:
-                    # Delete old encoded frame before storing new one
                     if self.right_encoded is not None:
                         del self.right_encoded
                     self.right_encoded = buffer.tobytes()
-                # Delete buffer immediately after use
                 del buffer
             
-            # Delete original frame
             del frame
+            
+            # Small sleep to prevent CPU spinning (Jetson optimization)
+            time.sleep(0.001)
     
     def _left_ai_loop(self):
         """Left AI thread - MEMORY LEAK PREVENTION & CPU OPTIMIZED"""

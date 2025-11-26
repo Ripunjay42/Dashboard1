@@ -475,11 +475,10 @@ class VideoStreamManager:
         self.detection_persistence = 5  # Instant clear (5 frames = ~167ms)
         
         # Performance settings (Adaptive for CUDA/CPU)
-        # CUDA mode: Higher quality (GPU can handle encoding)
-        # CPU mode: Lower quality for faster encoding
+        # OPTIMIZED FOR JETSON: Lower quality for smoother streaming
         if hasattr(self.detector, 'is_jetson') and self.detector.is_jetson:
             if self.detector.device == 'cuda':
-                self.jpeg_quality = 65  # CUDA: Higher quality, GPU can handle it
+                self.jpeg_quality = 55  # CUDA on Jetson: Balanced for real-time streaming
             else:
                 self.jpeg_quality = 50  # CPU: Lower for speed
         else:
@@ -614,8 +613,11 @@ class VideoStreamManager:
             else:
                 overlay_frame = frame
             
-            # Fast JPEG encoding
-            encode_param = [int(cv2.IMWRITE_JPEG_QUALITY), self.jpeg_quality]
+            # Fast JPEG encoding with optimization flag
+            encode_param = [
+                int(cv2.IMWRITE_JPEG_QUALITY), self.jpeg_quality,
+                int(cv2.IMWRITE_JPEG_OPTIMIZE), 1  # Enable fast encoding
+            ]
             ret, buffer = cv2.imencode('.jpg', overlay_frame, encode_param)
             
             if ret:
