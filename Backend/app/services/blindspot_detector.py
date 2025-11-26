@@ -381,43 +381,45 @@ class DualCameraManager:
                 return False
     
     def _get_jetson_camera_pipeline(self, camera_id=0):
-        """Get optimized GStreamer pipeline for Jetson Orin/Nano"""
-        # CSI Camera (best performance) - optimized for Jetson Orin
+        """Get optimized GStreamer pipeline for Jetson Orin/Nano - FIXED VERSION"""
+        # CSI Camera (best performance)
         gst_csi = (
             f"nvarguscamerasrc sensor-id={camera_id} ! "
-            "video/x-raw(memory:NVMM), width=640, height=480, framerate=30/1, format=NV12 ! "
+            "video/x-raw(memory:NVMM),width=640,height=480,framerate=30/1,format=NV12 ! "
             "nvvidconv ! "
-            "video/x-raw, width=480, height=270, format=BGRx ! "
+            "video/x-raw,width=480,height=270,format=BGRx ! "
             "videoconvert ! "
-            "video/x-raw, format=BGR ! "
-            "appsink drop=true max-buffers=2 sync=false"
+            "video/x-raw,format=BGR ! "
+            "appsink drop=true max-buffers=1 sync=false"
         )
         
-        # USB Camera with MJPEG decoding (faster on Jetson)
+        # USB Camera with MJPEG - FIXED: Removed io-mode=2 and spaces in caps
         gst_usb_mjpeg = (
-            f"v4l2src device=/dev/video{camera_id} io-mode=2 ! "
-            "image/jpeg, width=640, height=480, framerate=30/1 ! "
+            f"v4l2src device=/dev/video{camera_id} ! "
+            "image/jpeg,width=640,height=480,framerate=30/1 ! "
             "jpegdec ! "
             "videoscale ! "
-            "video/x-raw, width=480, height=270 ! "
+            "video/x-raw,width=480,height=270 ! "
             "videoconvert ! "
-            "video/x-raw, format=BGR ! "
-            "appsink drop=true max-buffers=2 sync=false"
+            "video/x-raw,format=BGR ! "
+            "appsink drop=true max-buffers=1 sync=false"
         )
         
-        # USB Camera fallback (simple)
-        gst_usb_simple = (
+        # USB Camera with YUYV format (uncompressed fallback)
+        gst_usb_yuyv = (
             f"v4l2src device=/dev/video{camera_id} ! "
-            "video/x-raw, width=480, height=270, framerate=30/1 ! "
+            "video/x-raw,format=YUY2,width=640,height=480,framerate=30/1 ! "
+            "videoscale ! "
+            "video/x-raw,width=480,height=270 ! "
             "videoconvert ! "
-            "video/x-raw, format=BGR ! "
-            "appsink drop=true max-buffers=2 sync=false"
+            "video/x-raw,format=BGR ! "
+            "appsink drop=true max-buffers=1 sync=false"
         )
         
         return [
             (gst_csi, cv2.CAP_GSTREAMER),
             (gst_usb_mjpeg, cv2.CAP_GSTREAMER),
-            (gst_usb_simple, cv2.CAP_GSTREAMER)
+            (gst_usb_yuyv, cv2.CAP_GSTREAMER)
         ]
         csi_pipeline = (
             f"nvarguscamerasrc sensor-id={camera_id} ! "
@@ -450,11 +452,13 @@ class DualCameraManager:
         self.is_jetson = self._detect_jetson_nano()
         
         if self.is_jetson:
-            print("    Jetson Nano detected - Testing GStreamer pipelines")
+            print("    Jetson Nano detected - Testing multiple backends")
             
-            # Test CSI and USB cameras on Jetson
+            # Test multiple cameras with V4L2 fallback (same as pothole detector)
             for camera_id in range(2):
+                # Try GStreamer pipelines first
                 pipelines = self._get_jetson_camera_pipeline(camera_id)
+                camera_opened = False
                 
                 for pipeline, backend in pipelines:
                     try:
@@ -463,12 +467,28 @@ class DualCameraManager:
                             ret, frame = cap.read()
                             if ret and frame is not None and frame.size > 0:
                                 available_cameras.append(camera_id)
-                                print(f"   Jetson Camera {camera_id} available (GStreamer)")
+                                print(f"   ✓ Camera {camera_id} available (GStreamer)")
                                 cap.release()
+                                camera_opened = True
                                 break
                         cap.release()
                     except Exception as e:
-                        print(f"   Jetson Camera {camera_id} failed: {e}")
+                        pass
+                
+                # Fallback to V4L2 (same as pothole detector)
+                if not camera_opened:
+                    try:
+                        cap = cv2.VideoCapture(camera_id, cv2.CAP_V4L2)
+                        if cap.isOpened():
+                            ret, frame = cap.read()
+                            if ret and frame is not None and frame.size > 0:
+                                available_cameras.append(camera_id)
+                                print(f"   ✓ Camera {camera_id} available (V4L2 fallback)")
+                                cap.release()
+                        else:
+                            cap.release()
+                    except Exception as e:
+                        pass
         else:
             # Windows CPU detection - prefer single high-quality camera
             print("   💻 Windows CPU mode - Looking for best single camera")
@@ -482,7 +502,7 @@ class DualCameraManager:
                             ret, frame = cap.read()
                             if ret and frame is not None and frame.size > 0:
                                 available_cameras.append(camera_id)
-                                print(f"   Camera {camera_id} available (will be used for both sides)")
+                                print(f"   ✓ Camera {camera_id} available (will be used for both sides)")
                                 cap.release()
                                 break
                         cap.release()
@@ -538,8 +558,39 @@ class DualCameraManager:
         else:
             # Only one camera available - use it for both sides
             print(f"📹 Opening single camera {available_cameras[0]} for both sides...")
-            self.left_cap = cv2.VideoCapture(available_cameras[0], backend)
-            self.right_cap = cv2.VideoCapture(available_cameras[0], backend)
+            
+            # Try to open camera with proper backend
+            if self.is_jetson:
+                # On Jetson, try GStreamer first, then V4L2 (same as pothole detector)
+                pipelines = self._get_jetson_camera_pipeline(available_cameras[0])
+                camera_opened = False
+                
+                for pipeline, gst_backend in pipelines:
+                    try:
+                        cap_test = cv2.VideoCapture(pipeline, gst_backend)
+                        if cap_test.isOpened():
+                            self.left_cap = cv2.VideoCapture(pipeline, gst_backend)
+                            self.right_cap = cv2.VideoCapture(pipeline, gst_backend)
+                            camera_opened = True
+                            print(f"   ✓ GStreamer pipeline opened successfully")
+                            cap_test.release()
+                            break
+                        cap_test.release()
+                    except:
+                        pass
+                
+                # V4L2 fallback
+                if not camera_opened:
+                    print(f"   Trying V4L2 fallback...")
+                    self.left_cap = cv2.VideoCapture(available_cameras[0], cv2.CAP_V4L2)
+                    self.right_cap = cv2.VideoCapture(available_cameras[0], cv2.CAP_V4L2)
+                    if self.left_cap.isOpened():
+                        print(f"   ✓ V4L2 fallback successful")
+            else:
+                # Windows/Linux
+                self.left_cap = cv2.VideoCapture(available_cameras[0], backend)
+                self.right_cap = cv2.VideoCapture(available_cameras[0], backend)
+            
             self.dual_camera_mode = False
             print("   Single camera mode: Same feed for both sides")
         
@@ -550,7 +601,12 @@ class DualCameraManager:
                 cap.set(cv2.CAP_PROP_FRAME_WIDTH, FRAME_W)  # 480x270 for good quality
                 cap.set(cv2.CAP_PROP_FRAME_HEIGHT, FRAME_H)
                 cap.set(cv2.CAP_PROP_FPS, 30)
-                cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*'MJPG'))
+                
+                # Try MJPEG for better performance
+                try:
+                    cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*'MJPG'))
+                except:
+                    pass
                 
                 # Additional Windows-specific anti-lag settings
                 if platform.system() == "Windows":
