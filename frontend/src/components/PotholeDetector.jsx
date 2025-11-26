@@ -96,10 +96,10 @@ const PotholeDetector = ({ onBack }) => {
   return (
     <div className="h-full flex flex-col p-4">
       {/* Header with back button */}
-      <div className="flex items-center justify-between mb-4">
+      <div className="flex items-center justify-center mb-4">
 
-        <h2 className="text-2xl font-bold text-white">Pothole Detection</h2>
-        <div className="w-20"></div> {/* Spacer for centering */}
+        <h2 className="text-xl font-bold text-white">Pothole Detection</h2>
+        <div className="w-16"></div> {/* Spacer for centering */}
       </div>
 
       {/* Video Feed Container */}

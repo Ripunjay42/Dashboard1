@@ -99,9 +99,9 @@ const BlindSpotDetector = ({ onBack }) => {
   return (
     <div className="h-full flex flex-col p-4">
       {/* Header with back button */}
-      <div className="flex items-center justify-between mb-4">
-        <h2 className="text-2xl font-bold text-white">Blind Spot Detection</h2>
-        <div className="w-20"></div>
+      <div className="flex items-center justify-center mb-4">
+        <h2 className="text-xl font-bold text-white">Blind Spot Detection</h2>
+        <div className="w-16"></div>
       </div>
 
       {/* Video Feed Container */}
