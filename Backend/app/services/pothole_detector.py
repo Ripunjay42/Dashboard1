@@ -54,10 +54,16 @@ class PotholeDetector:
         
         # Jetson-specific optimizations
         if self.is_jetson:
-            # AGGRESSIVE: Tiny input for maximum FPS on CPU mode
-            self.input_size = (64, 64)  # 3x faster than 96x96 on CPU
-            self.threshold = 0.5
-            print(f"   Jetson Orin detected - SPEED MODE: {self.input_size}")
+            if self.device == 'cuda':
+                # CUDA MODE: Can use larger input for better accuracy!
+                self.input_size = (128, 128)  # 2x larger than CPU mode
+                self.threshold = 0.45
+                print(f"   Jetson Orin detected - CUDA MODE: {self.input_size}")
+            else:
+                # CPU MODE: Keep small for speed
+                self.input_size = (64, 64)
+                self.threshold = 0.5
+                print(f"   Jetson Orin detected - CPU MODE: {self.input_size}")
         else:
             self.input_size = (128, 128)
             self.threshold = 0.45
@@ -353,10 +359,14 @@ class VideoStreamManager:
         self.frames_since_detection = 0
         self.detection_persistence = 5  # Instant clear (5 frames = ~167ms)
         
-        # Performance settings (ULTRA FAST FOR JETSON CPU)
-        # Lower JPEG quality = much faster encoding on Jetson CPU!
+        # Performance settings (Adaptive for CUDA/CPU)
+        # CUDA mode: Higher quality (GPU can handle encoding)
+        # CPU mode: Lower quality for faster encoding
         if hasattr(self.detector, 'is_jetson') and self.detector.is_jetson:
-            self.jpeg_quality = 50  # Lower for Jetson CPU speed
+            if self.detector.device == 'cuda':
+                self.jpeg_quality = 65  # CUDA: Higher quality, GPU can handle it
+            else:
+                self.jpeg_quality = 50  # CPU: Lower for speed
         else:
             self.jpeg_quality = 65  # Higher for powerful machines
     
@@ -504,13 +514,19 @@ class VideoStreamManager:
                 if self.latest_frame is None:
                     time.sleep(0.005)
                     continue
-                # AGGRESSIVE: Even smaller resize for Jetson CPU mode
-                # 160x120 is 4x faster than 320x240 on CPU!
-                frame_small = cv2.resize(self.latest_frame, (160, 120), interpolation=cv2.INTER_LINEAR)
+                
+                # Adaptive resize based on device (CUDA vs CPU)
+                if hasattr(self.detector, 'device') and self.detector.device == 'cuda':
+                    # CUDA MODE: Can handle larger frames for better quality!
+                    frame_small = cv2.resize(self.latest_frame, (320, 240), interpolation=cv2.INTER_LINEAR)
+                else:
+                    # CPU MODE: Keep small for speed
+                    frame_small = cv2.resize(self.latest_frame, (160, 120), interpolation=cv2.INTER_LINEAR)
+                
                 # CRITICAL: Store original dimensions inside lock to prevent race condition
                 original_h, original_w = self.latest_frame.shape[:2]
             
-            # Run AI inference immediately (smaller frame = faster inference!)
+            # Run AI inference immediately (GPU accelerated if CUDA available!)
             mask = self.detector.detect(frame_small)
             
             # Resize mask back to original size for overlay (using stored dimensions)
@@ -551,10 +567,11 @@ class VideoStreamManager:
                             self.current_mask = None
                             self.pothole_detected = False
             
-            # FRAME SKIP: Process every 2nd frame on Jetson CPU for smooth video
-            # This cuts AI load in half while keeping video at 30 FPS!
+            # FRAME SKIP: Only needed on CPU mode to prevent overload
+            # GPU mode can handle full-speed processing without throttling
             if hasattr(self.detector, 'is_jetson') and self.detector.is_jetson and self.detector.device == 'cpu':
                 time.sleep(0.033)  # ~30 FPS AI processing on CPU mode
+                # CUDA mode: No delay - GPU can process at full speed!
     
     def get_encoded_frame(self):
         """Get pre-encoded JPEG frame for MJPEG streaming"""

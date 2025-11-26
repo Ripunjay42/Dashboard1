@@ -77,7 +77,7 @@ class BlindSpotDetector:
             # Determine model type from file extension
             model_extension = os.path.splitext(yolo_model_path)[1].lower()
             
-            # Load YOLO with optimizations for Jetson or Windows
+            # Load YOLO with optimizations - ADAPTIVE FOR CUDA/CPU
             if self.is_jetson:
                 print(f"   Jetson detected - Loading YOLO model: {yolo_model_path}")
                 
@@ -90,13 +90,21 @@ class BlindSpotDetector:
                     print("   ⚠️ Loading PyTorch model (consider converting to .engine for better performance)")
                     self.yolo = YOLO(yolo_model_path)
                 
-                # Jetson optimizations
-                self.yolo_img_size = 256  # Smaller for Orin Nano stability
-                self.conf_threshold = 0.35  # Balanced confidence
-                self.iou_threshold = 0.7   # Higher IoU for faster NMS
-                self.frame_skip = 5        # Process every 5th frame (6 FPS AI)
-                
-                print(f"   ✓ Jetson mode: {self.yolo_img_size}px input, conf={self.conf_threshold}, skip={self.frame_skip}")
+                # Adaptive Jetson optimizations based on CUDA availability
+                if self.device == 'cuda':
+                    # CUDA MODE: Higher quality, GPU can handle larger inputs
+                    self.yolo_img_size = 416  # Larger for better detection quality
+                    self.conf_threshold = 0.35
+                    self.iou_threshold = 0.7
+                    self.frame_skip = 2  # Process every 2nd frame (15 FPS AI)
+                    print(f"   ✓ CUDA MODE: {self.yolo_img_size}px input, conf={self.conf_threshold}, skip={self.frame_skip}")
+                else:
+                    # CPU MODE: Optimized for speed
+                    self.yolo_img_size = 256  # Smaller for stability
+                    self.conf_threshold = 0.35
+                    self.iou_threshold = 0.7
+                    self.frame_skip = 5  # Process every 5th frame (6 FPS AI)
+                    print(f"   ✓ CPU MODE: {self.yolo_img_size}px input, conf={self.conf_threshold}, skip={self.frame_skip}")
             else:
                 # Windows/Linux CPU optimizations
                 print(f"   Loading YOLO model for CPU: {yolo_model_path}")
