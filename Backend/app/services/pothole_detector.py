@@ -366,12 +366,14 @@ def get_camera_pipeline(camera_id=0):
     
     if is_jetson:
         if is_jetson_orin:
-            print("🚀 Jetson Orin Nano detected - Using optimized GStreamer pipeline")
+            print("🚀 Jetson Orin Nano detected - Using optimized pipeline")
         else:
-            print("📹 Jetson Nano detected - Using GStreamer pipeline")
+            print("📹 Jetson Nano detected - Using optimized pipeline")
         
-        # Jetson Orin Nano: Optimized pipeline for MAXIMUM SPEED
-        # CSI Camera (best performance)
+        # Priority 1: V4L2 with MJPEG (TESTED & WORKING on your Jetson!)
+        # Since GStreamer is not available, prioritize V4L2 which works
+        
+        # Priority 2: CSI Camera (if available)
         gst_csi = (
             f"nvarguscamerasrc sensor-id={camera_id} ! "
             "video/x-raw(memory:NVMM),width=640,height=480,framerate=30/1,format=NV12 ! "
@@ -382,28 +384,27 @@ def get_camera_pipeline(camera_id=0):
             "appsink drop=true max-buffers=1 sync=false"
         )
         
-        # USB camera with MJPEG - OPTIMIZED for your camera (640x480@30fps)
-        # Hardware compressed MJPEG = 40MB/s vs YUYV = 590MB/s (15x less!)
+        # Priority 3: GStreamer USB MJPEG (if GStreamer available)
         gst_usb_mjpeg = (
             f"v4l2src device=/dev/video{camera_id} ! "
             "image/jpeg,width=640,height=480,framerate=30/1 ! "
-            "nvjpegdec ! "  # Hardware JPEG decode on Jetson
+            "nvjpegdec ! "  # Hardware JPEG decode
             "videoconvert ! "
             "video/x-raw,format=BGR ! "
             "appsink drop=true max-buffers=1 sync=false"
         )
         
-        # Fallback 1: Software JPEG decode (if nvjpegdec not available)
+        # Priority 4: GStreamer Software JPEG
         gst_usb_mjpeg_sw = (
             f"v4l2src device=/dev/video{camera_id} ! "
             "image/jpeg,width=640,height=480,framerate=30/1 ! "
-            "jpegdec ! "  # Software JPEG decode (slower but works)
+            "jpegdec ! "  # Software JPEG decode
             "videoconvert ! "
             "video/x-raw,format=BGR ! "
             "appsink drop=true max-buffers=1 sync=false"
         )
         
-        # Fallback 2: YUYV format (slowest, avoid if possible)
+        # Priority 5: GStreamer YUYV
         gst_usb_yuyv = (
             f"v4l2src device=/dev/video{camera_id} ! "
             "video/x-raw,format=YUY2,width=640,height=480,framerate=30/1 ! "
@@ -412,12 +413,15 @@ def get_camera_pipeline(camera_id=0):
             "appsink drop=true max-buffers=1 sync=false"
         )
         
+        # OPTIMIZED: Try V4L2 first (proven to work), then GStreamer, then fallbacks
         return [
-            (gst_csi, cv2.CAP_GSTREAMER),
-            (gst_usb_mjpeg, cv2.CAP_GSTREAMER),
-            (gst_usb_mjpeg_sw, cv2.CAP_GSTREAMER),
-            (gst_usb_yuyv, cv2.CAP_GSTREAMER),
-            (camera_id, cv2.CAP_V4L2)
+            (camera_id, cv2.CAP_V4L2),      # Try V4L2 FIRST (works!)
+            (camera_id, cv2.CAP_ANY),       # CAP_ANY as backup
+            (gst_csi, cv2.CAP_GSTREAMER),   # CSI camera (if available)
+            (gst_usb_mjpeg, cv2.CAP_GSTREAMER),    # GStreamer MJPEG HW
+            (gst_usb_mjpeg_sw, cv2.CAP_GSTREAMER), # GStreamer MJPEG SW
+            (gst_usb_yuyv, cv2.CAP_GSTREAMER),     # GStreamer YUYV
+            (camera_id, None)               # Direct index (last resort)
         ]
     
     elif system == "Linux":
@@ -498,9 +502,13 @@ class VideoStreamManager:
                 
                 # Important: Add small delay between attempts on Jetson to prevent segfault
                 if idx > 0:
-                    time.sleep(0.5)
+                    time.sleep(0.3)
                 
-                self.cap = cv2.VideoCapture(pipeline, backend)
+                # Handle None backend (direct index)
+                if backend is None:
+                    self.cap = cv2.VideoCapture(pipeline)
+                else:
+                    self.cap = cv2.VideoCapture(pipeline, backend)
                 
                 if not self.cap.isOpened():
                     print(f"    ❌ Failed to open")
@@ -510,17 +518,17 @@ class VideoStreamManager:
                     continue
                 
                 # Set properties BEFORE testing read (important for Jetson stability)
-                if backend != cv2.CAP_GSTREAMER:
+                if backend not in [cv2.CAP_GSTREAMER, None]:
                     try:
                         self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)  # No buffering for low latency
                         self.cap.set(cv2.CAP_PROP_FPS, 30)
+                        self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+                        self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+                        self.cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*'MJPG'))  # MJPEG for fast capture
                     except:
                         pass  # Some properties may not be supported
-                    self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
-                    self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
-                    self.cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*'MJPG'))  # MJPEG for fast capture
-                    # Add small delay for Windows MSMF to stabilize
-                    time.sleep(0.5)
+                    # Add small delay for camera to stabilize
+                    time.sleep(0.3)
                 
                 # Test read with retries
                 success = False

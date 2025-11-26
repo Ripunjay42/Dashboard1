@@ -381,8 +381,15 @@ class DualCameraManager:
                 return False
     
     def _get_jetson_camera_pipeline(self, camera_id=0):
-        """Get optimized GStreamer pipeline for Jetson Orin/Nano - MJPEG OPTIMIZED"""
-        # CSI Camera (best performance, if available)
+        """Get optimized camera pipeline for Jetson - V4L2 PRIORITIZED (TESTED & WORKING)"""
+        # Since diagnostic shows V4L2 works but GStreamer doesn't, prioritize V4L2
+        
+        # Priority 1: V4L2 Direct (TESTED - WORKS!)
+        # Priority 2: CAP_ANY (TESTED - WORKS!)
+        # Priority 3-6: GStreamer pipelines (if available)
+        # Priority 7: Direct index (last resort)
+        
+        # GStreamer pipelines (kept for future if GStreamer gets installed)
         gst_csi = (
             f"nvarguscamerasrc sensor-id={camera_id} ! "
             "video/x-raw(memory:NVMM),width=640,height=480,framerate=30/1,format=NV12 ! "
@@ -393,12 +400,10 @@ class DualCameraManager:
             "appsink drop=true max-buffers=1 sync=false"
         )
         
-        # USB Camera with MJPEG - Hardware decode (BEST for Jetson)
-        # Your camera supports MJPEG @ 640x480 @ 30fps
         gst_usb_mjpeg_hw = (
             f"v4l2src device=/dev/video{camera_id} ! "
             "image/jpeg,width=640,height=480,framerate=30/1 ! "
-            "nvjpegdec ! "  # Hardware JPEG decoder (Jetson accelerated)
+            "nvjpegdec ! "
             "videoscale ! "
             "video/x-raw,width=480,height=270 ! "
             "videoconvert ! "
@@ -406,11 +411,10 @@ class DualCameraManager:
             "appsink drop=true max-buffers=1 sync=false"
         )
         
-        # USB Camera with MJPEG - Software decode (fallback)
         gst_usb_mjpeg_sw = (
             f"v4l2src device=/dev/video{camera_id} ! "
             "image/jpeg,width=640,height=480,framerate=30/1 ! "
-            "jpegdec ! "  # Software JPEG decoder (works everywhere)
+            "jpegdec ! "
             "videoscale ! "
             "video/x-raw,width=480,height=270 ! "
             "videoconvert ! "
@@ -418,7 +422,6 @@ class DualCameraManager:
             "appsink drop=true max-buffers=1 sync=false"
         )
         
-        # USB Camera with YUYV format (slowest, last resort)
         gst_usb_yuyv = (
             f"v4l2src device=/dev/video{camera_id} ! "
             "video/x-raw,format=YUY2,width=640,height=480,framerate=30/1 ! "
@@ -429,75 +432,73 @@ class DualCameraManager:
             "appsink drop=true max-buffers=1 sync=false"
         )
         
+        # OPTIMIZED ORDER: V4L2 first (proven to work), then GStreamer
         return [
-            (gst_csi, cv2.CAP_GSTREAMER),
-            (gst_usb_mjpeg_hw, cv2.CAP_GSTREAMER),
-            (gst_usb_mjpeg_sw, cv2.CAP_GSTREAMER),
-            (gst_usb_yuyv, cv2.CAP_GSTREAMER)
+            (camera_id, cv2.CAP_V4L2),               # Priority 1: V4L2 (WORKS!)
+            (camera_id, cv2.CAP_ANY),                # Priority 2: CAP_ANY (WORKS!)
+            (gst_csi, cv2.CAP_GSTREAMER),            # Priority 3: CSI camera
+            (gst_usb_mjpeg_hw, cv2.CAP_GSTREAMER),   # Priority 4: GStreamer MJPEG HW
+            (gst_usb_mjpeg_sw, cv2.CAP_GSTREAMER),   # Priority 5: GStreamer MJPEG SW
+            (gst_usb_yuyv, cv2.CAP_GSTREAMER),       # Priority 6: GStreamer YUYV
+            (camera_id, None)                        # Priority 7: Direct index
         ]
-        csi_pipeline = (
-            f"nvarguscamerasrc sensor-id={camera_id} ! "
-            f"video/x-raw(memory:NVMM), width={FRAME_W}, height={FRAME_H}, framerate=30/1, format=NV12 ! "
-            "nvvidconv flip-method=0 ! "
-            f"video/x-raw, width={FRAME_W}, height={FRAME_H}, format=BGRx ! "
-            "videoconvert ! "
-            "video/x-raw, format=BGR ! "
-            "appsink drop=1"
-        )
-        
-        # USB Camera fallback
-        usb_pipeline = (
-            f"v4l2src device=/dev/video{camera_id} ! "
-            f"video/x-raw, width={FRAME_W}, height={FRAME_H}, framerate=30/1 ! "
-            "videoconvert ! "
-            "video/x-raw, format=BGR ! "
-            "appsink drop=1"
-        )
-        
-        return [(csi_pipeline, cv2.CAP_GSTREAMER), (usb_pipeline, cv2.CAP_GSTREAMER)]
     
     def _detect_available_cameras(self):
-        """Detect available cameras - Windows CPU optimized (single camera preferred)"""
+        """Detect available cameras - Optimized for V4L2/CAP_ANY (TESTED & WORKING)"""
         available_cameras = []
         
-        print("🔍 Detecting available cameras for single-camera mode...")
+        print("🔍 Detecting available cameras...")
         
         # Check if running on Jetson Nano
         self.is_jetson = self._detect_jetson_nano()
         
         if self.is_jetson:
-            print("    Jetson Nano detected - Testing multiple backends")
+            print("    📹 Jetson detected - Testing V4L2 backends (proven to work)")
             
-            # Test multiple cameras with V4L2 fallback (same as pothole detector)
-            for camera_id in range(2):
-                # Try GStreamer pipelines first
-                pipelines = self._get_jetson_camera_pipeline(camera_id)
+            # Test cameras with working backends: V4L2 and CAP_ANY
+            for camera_id in range(3):  # Check cameras 0, 1, 2
                 camera_opened = False
                 
-                for pipeline, backend in pipelines:
+                # Try V4L2 first (TESTED - WORKS!)
+                try:
+                    cap = cv2.VideoCapture(camera_id, cv2.CAP_V4L2)
+                    if cap.isOpened():
+                        ret, frame = cap.read()
+                        if ret and frame is not None and frame.size > 0:
+                            available_cameras.append(camera_id)
+                            print(f"   ✓ Camera {camera_id} available (V4L2)")
+                            cap.release()
+                            camera_opened = True
+                        else:
+                            cap.release()
+                except Exception as e:
+                    pass
+                
+                # Try CAP_ANY as backup (TESTED - WORKS!)
+                if not camera_opened:
                     try:
-                        cap = cv2.VideoCapture(pipeline, backend)
+                        cap = cv2.VideoCapture(camera_id, cv2.CAP_ANY)
                         if cap.isOpened():
                             ret, frame = cap.read()
                             if ret and frame is not None and frame.size > 0:
                                 available_cameras.append(camera_id)
-                                print(f"   ✓ Camera {camera_id} available (GStreamer)")
+                                print(f"   ✓ Camera {camera_id} available (CAP_ANY)")
                                 cap.release()
                                 camera_opened = True
-                                break
-                        cap.release()
+                        else:
+                            cap.release()
                     except Exception as e:
                         pass
                 
-                # Fallback to V4L2 (same as pothole detector)
+                # Try direct index as last resort (TESTED - WORKS!)
                 if not camera_opened:
                     try:
-                        cap = cv2.VideoCapture(camera_id, cv2.CAP_V4L2)
+                        cap = cv2.VideoCapture(camera_id)
                         if cap.isOpened():
                             ret, frame = cap.read()
                             if ret and frame is not None and frame.size > 0:
                                 available_cameras.append(camera_id)
-                                print(f"   ✓ Camera {camera_id} available (V4L2 fallback)")
+                                print(f"   ✓ Camera {camera_id} available (direct index)")
                                 cap.release()
                         else:
                             cap.release()
@@ -573,49 +574,47 @@ class DualCameraManager:
             # Only one camera available - use it for both sides
             print(f"📹 Opening single camera {available_cameras[0]} for both sides...")
             
-            # Try to open camera with proper backend
+            # Try to open camera with working backends
             if self.is_jetson:
-                # On Jetson, try GStreamer first, then V4L2 (same as pothole detector)
+                # On Jetson, use proven backends: V4L2, CAP_ANY, then GStreamer
                 pipelines = self._get_jetson_camera_pipeline(available_cameras[0])
                 camera_opened = False
                 
-                for pipeline, gst_backend in pipelines:
+                for idx, (pipeline, backend_type) in enumerate(pipelines):
                     try:
-                        cap_test = cv2.VideoCapture(pipeline, gst_backend)
-                        if cap_test.isOpened():
-                            self.left_cap = cv2.VideoCapture(pipeline, gst_backend)
-                            self.right_cap = cv2.VideoCapture(pipeline, gst_backend)
-                            camera_opened = True
-                            print(f"   ✓ GStreamer pipeline opened successfully")
-                            cap_test.release()
-                            break
-                        cap_test.release()
-                    except:
+                        # Handle None backend (direct index)
+                        if backend_type is None:
+                            test_cap = cv2.VideoCapture(pipeline)
+                        else:
+                            test_cap = cv2.VideoCapture(pipeline, backend_type)
+                        
+                        if test_cap.isOpened():
+                            ret, frame = test_cap.read()
+                            if ret and frame is not None:
+                                # Success! Share this camera for both left and right
+                                self.left_cap = test_cap
+                                self.right_cap = self.left_cap  # Share the same object
+                                camera_opened = True
+                                
+                                backend_name = "V4L2" if backend_type == cv2.CAP_V4L2 else \
+                                              "CAP_ANY" if backend_type == cv2.CAP_ANY else \
+                                              "GStreamer" if backend_type == cv2.CAP_GSTREAMER else \
+                                              "Direct"
+                                print(f"   ✓ Camera opened successfully (backend: {backend_name})")
+                                break
+                        test_cap.release()
+                    except Exception as e:
                         pass
                 
-                # V4L2 fallback
                 if not camera_opened:
-                    print(f"   Trying V4L2/CAP_ANY fallback...")
-                    # Try multiple backends for Jetson
-                    for fallback_backend in [cv2.CAP_V4L2, cv2.CAP_ANY, available_cameras[0]]:
-                        try:
-                            self.left_cap = cv2.VideoCapture(available_cameras[0], fallback_backend)
-                            if self.left_cap.isOpened():
-                                # For single camera mode, share the same capture object
-                                self.right_cap = self.left_cap
-                                camera_opened = True
-                                print(f"   ✓ Fallback successful (backend: {fallback_backend})")
-                                break
-                        except Exception as e:
-                            if self.left_cap:
-                                self.left_cap.release()
-                                self.left_cap = None
+                    print(f"   ❌ Failed to open camera with any backend")
             else:
                 # Windows/Linux
                 self.left_cap = cv2.VideoCapture(available_cameras[0], backend)
                 if self.left_cap.isOpened():
                     # Share the same capture object for single camera
                     self.right_cap = self.left_cap
+                    camera_opened = True
                 else:
                     self.right_cap = None
             
