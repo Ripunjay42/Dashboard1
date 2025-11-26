@@ -18,8 +18,8 @@ def preload_models():
 @blindspot_bp.route('/start', methods=['POST'])
 def start_detection():
     """Start blind spot detection"""
-    left_cam_id = current_app.config.get('LEFT_CAMERA_ID', 0)
-    right_cam_id = current_app.config.get('RIGHT_CAMERA_ID', 1)
+    left_cam_id = current_app.config.get('LEFT_CAMERA_ID', 1)
+    right_cam_id = current_app.config.get('RIGHT_CAMERA_ID', 2)
     
     result = blindspot_controller.start_detection(left_cam_id, right_cam_id)
     if isinstance(result, tuple):

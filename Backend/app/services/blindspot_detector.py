@@ -444,7 +444,7 @@ class DualCameraManager:
         ]
     
     def _detect_available_cameras(self):
-        """Detect available cameras - Optimized for V4L2/CAP_ANY (TESTED & WORKING)"""
+        """Detect available cameras - Use requested camera IDs"""
         available_cameras = []
         
         print("🔍 Detecting available cameras...")
@@ -452,11 +452,15 @@ class DualCameraManager:
         # Check if running on Jetson Nano
         self.is_jetson = self._detect_jetson_nano()
         
+        # Use the camera IDs that were requested (left_cam_id and right_cam_id)
+        requested_cameras = [self.left_cam_id, self.right_cam_id]
+        print(f"    📷 Testing cameras: {requested_cameras}")
+        
         if self.is_jetson:
             print("    📹 Jetson detected - Testing V4L2 backends (proven to work)")
             
             # Test cameras with working backends: V4L2 and CAP_ANY
-            for camera_id in range(3):  # Check cameras 0, 1, 2
+            for camera_id in requested_cameras:
                 camera_opened = False
                 
                 # Try V4L2 first (TESTED - WORKS!)
@@ -505,19 +509,20 @@ class DualCameraManager:
                     except Exception as e:
                         pass
         else:
-            # Windows CPU detection - prefer single high-quality camera
-            print("   💻 Windows CPU mode - Looking for best single camera")
+            # Windows/Linux - test requested cameras
+            print("   💻 Testing requested camera IDs")
             backends = [cv2.CAP_DSHOW, cv2.CAP_ANY]
             
-            for camera_id in range(4):
+            for camera_id in requested_cameras:
                 for backend in backends:
                     try:
                         cap = cv2.VideoCapture(camera_id, backend)
                         if cap.isOpened():
                             ret, frame = cap.read()
                             if ret and frame is not None and frame.size > 0:
-                                available_cameras.append(camera_id)
-                                print(f"   ✓ Camera {camera_id} available (will be used for both sides)")
+                                if camera_id not in available_cameras:
+                                    available_cameras.append(camera_id)
+                                    print(f"   ✓ Camera {camera_id} available")
                                 cap.release()
                                 break
                         cap.release()
