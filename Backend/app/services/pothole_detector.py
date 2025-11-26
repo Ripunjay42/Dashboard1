@@ -72,10 +72,12 @@ class PotholeDetector:
         # Jetson-specific optimizations
         if self.is_jetson:
             if self.device == 'cuda':
-                # CUDA MODE: Can use larger input for better accuracy!
-                self.input_size = (128, 128)  # 2x larger than CPU mode
+                # CUDA MODE: Use moderate input size to avoid OOM
+                # Start with 96x96 instead of 128x128 for better memory management
+                self.input_size = (96, 96)  # Balanced between quality and memory
                 self.threshold = 0.45
                 print(f"   Jetson Orin detected - CUDA MODE: {self.input_size}")
+                print(f"   ⚠️  Using 96x96 input to conserve GPU memory")
             else:
                 # CPU MODE: Keep small for speed
                 self.input_size = (64, 64)
@@ -126,35 +128,59 @@ class PotholeDetector:
             
             # Load PyTorch model (.pth or .pt)
             if not self.use_tensorrt:
+                print(f"   Building UNet ResNet50 model...")
+                
+                # Aggressive garbage collection before building model
+                gc.collect()
+                if self.device == 'cuda':
+                    torch.cuda.empty_cache()
+                
                 # Build model (same architecture as training)
-                self.model = smp.Unet(
-                    encoder_name='resnet50',
-                    encoder_weights=None,
-                    in_channels=3,
-                    classes=1,
-                    activation=None
-                )
+                try:
+                    self.model = smp.Unet(
+                        encoder_name='resnet50',
+                        encoder_weights=None,
+                        in_channels=3,
+                        classes=1,
+                        activation=None
+                    )
+                    print(f"   ✓ Model architecture created")
+                except Exception as e:
+                    print(f"❌ Failed to create model: {e}")
+                    raise
                 
                 # Load trained weights with error handling
                 if os.path.exists(model_path):
-                    print(f"   Loading PyTorch model: {model_path}")
+                    print(f"   Loading weights: {model_path}")
                     
                     # Load weights to CPU first to avoid CUDA allocation errors
-                    state_dict = torch.load(model_path, map_location='cpu')
-                    self.model.load_state_dict(state_dict)
-                    print(f"✓ PyTorch model weights loaded from {model_path}")
+                    try:
+                        state_dict = torch.load(model_path, map_location='cpu', weights_only=True)
+                        self.model.load_state_dict(state_dict)
+                        print(f"   ✓ Weights loaded to CPU")
+                        
+                        # Clean up state_dict from memory
+                        del state_dict
+                        gc.collect()
+                    except Exception as e:
+                        print(f"❌ Failed to load weights: {e}")
+                        raise
                 else:
                     print(f"⚠️ Warning: Model file not found at {model_path}")
                 
                 # Move to device AFTER loading weights with proper error handling
                 try:
                     if self.device == 'cuda':
-                        # Clear cache before moving model
-                        torch.cuda.empty_cache()
+                        print(f"   Moving model to CUDA...")
                         
-                        # Move model to CUDA
+                        # Aggressive memory cleanup before CUDA transfer
+                        gc.collect()
+                        torch.cuda.empty_cache()
+                        torch.cuda.synchronize()  # Wait for all operations to complete
+                        
+                        # Try to move model to CUDA
                         self.model = self.model.to(self.device)
-                        print(f"✓ Model moved to CUDA successfully")
+                        print(f"   ✓ Model successfully moved to CUDA")
                         
                         # Clear cache again after model transfer
                         torch.cuda.empty_cache()
@@ -162,10 +188,29 @@ class PotholeDetector:
                         self.model = self.model.to(self.device)
                         
                 except RuntimeError as e:
-                    print(f"❌ Failed to move model to CUDA: {e}")
+                    print(f"❌ CUDA out of memory: {e}")
                     print("   Falling back to CPU mode")
+                    
+                    # Force cleanup
+                    if hasattr(self, 'model'):
+                        del self.model
+                    gc.collect()
+                    torch.cuda.empty_cache()
+                    
+                    # Rebuild model on CPU
                     self.device = 'cpu'
+                    self.model = smp.Unet(
+                        encoder_name='resnet50',
+                        encoder_weights=None,
+                        in_channels=3,
+                        classes=1,
+                        activation=None
+                    )
+                    state_dict = torch.load(model_path, map_location='cpu', weights_only=True)
+                    self.model.load_state_dict(state_dict)
+                    del state_dict
                     self.model = self.model.to('cpu')
+                    
                     # Update input size for CPU mode
                     if self.is_jetson:
                         self.input_size = (64, 64)
