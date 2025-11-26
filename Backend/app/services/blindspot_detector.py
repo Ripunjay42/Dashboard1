@@ -595,15 +595,29 @@ class DualCameraManager:
                 
                 # V4L2 fallback
                 if not camera_opened:
-                    print(f"   Trying V4L2 fallback...")
-                    self.left_cap = cv2.VideoCapture(available_cameras[0], cv2.CAP_V4L2)
-                    self.right_cap = cv2.VideoCapture(available_cameras[0], cv2.CAP_V4L2)
-                    if self.left_cap.isOpened():
-                        print(f"   ✓ V4L2 fallback successful")
+                    print(f"   Trying V4L2/CAP_ANY fallback...")
+                    # Try multiple backends for Jetson
+                    for fallback_backend in [cv2.CAP_V4L2, cv2.CAP_ANY, available_cameras[0]]:
+                        try:
+                            self.left_cap = cv2.VideoCapture(available_cameras[0], fallback_backend)
+                            if self.left_cap.isOpened():
+                                # For single camera mode, share the same capture object
+                                self.right_cap = self.left_cap
+                                camera_opened = True
+                                print(f"   ✓ Fallback successful (backend: {fallback_backend})")
+                                break
+                        except Exception as e:
+                            if self.left_cap:
+                                self.left_cap.release()
+                                self.left_cap = None
             else:
                 # Windows/Linux
                 self.left_cap = cv2.VideoCapture(available_cameras[0], backend)
-                self.right_cap = cv2.VideoCapture(available_cameras[0], backend)
+                if self.left_cap.isOpened():
+                    # Share the same capture object for single camera
+                    self.right_cap = self.left_cap
+                else:
+                    self.right_cap = None
             
             self.dual_camera_mode = False
             print("   Single camera mode: Same feed for both sides")
