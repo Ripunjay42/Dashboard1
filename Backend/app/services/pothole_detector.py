@@ -379,32 +379,33 @@ def get_camera_pipeline(camera_id=0):
             "video/x-raw, width=640, height=480, format=BGRx ! "
             "videoconvert ! "
             "video/x-raw, format=BGR ! "
-            "appsink drop=true max-buffers=1 sync=false"  # max-buffers=1 for lower latency
+            "appsink drop=true max-buffers=1 sync=false"
         )
         
-        # USB camera with SPEED-optimized settings for Jetson Orin (MJPEG = fastest!)
-        gst_usb = (
-            f"v4l2src device=/dev/video{camera_id} io-mode=2 ! "
+        # USB camera with MJPEG - FASTEST! (hardware compressed)
+        # Your camera supports MJPEG at 640x480@30fps
+        gst_usb_mjpeg = (
+            f"v4l2src device=/dev/video{camera_id} ! "
             "image/jpeg, width=640, height=480, framerate=30/1 ! "
             "jpegdec ! "
             "videoconvert ! "
             "video/x-raw, format=BGR ! "
-            "appsink drop=true max-buffers=1 sync=false"  # Drop old frames for low latency
+            "appsink drop=true max-buffers=1 sync=false"
         )
         
-        # Fallback: Simple USB camera
-        gst_usb_simple = (
+        # Fallback: YUYV format (slower, software decompression)
+        gst_usb_yuyv = (
             f"v4l2src device=/dev/video{camera_id} ! "
-            "video/x-raw, width=640, height=480, framerate=30/1 ! "
+            "video/x-raw, format=YUY2, width=640, height=480, framerate=30/1 ! "
             "videoconvert ! "
             "video/x-raw, format=BGR ! "
-            "appsink drop=true max-buffers=2 sync=false"
+            "appsink drop=true max-buffers=1 sync=false"
         )
         
         return [
             (gst_csi, cv2.CAP_GSTREAMER),
-            (gst_usb, cv2.CAP_GSTREAMER),
-            (gst_usb_simple, cv2.CAP_GSTREAMER),
+            (gst_usb_mjpeg, cv2.CAP_GSTREAMER),
+            (gst_usb_yuyv, cv2.CAP_GSTREAMER),
             (camera_id, cv2.CAP_V4L2)
         ]
     
