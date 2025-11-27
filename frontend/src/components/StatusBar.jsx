@@ -39,7 +39,7 @@ const StatusBar = ({ time, mqttConnected = false, pirAlert = 0, useMqtt = true, 
           <div className={`w-12 h-6 rounded-full transition-colors duration-300 ${
             useMqtt ? (mqttConnected ? 'bg-transparent' : 'bg-transparent') : 'bg-transparent'
           }`}>
-            <div className={`absolute top-1 left-1 w-4 h-4 bg-white rounded-full transition-transform duration-300 ${
+            <div className={`absolute top-1 left-1 w-4 h-4 rounded-full transition-transform duration-300 ${
               useMqtt ? (mqttConnected ? 'bg-transparent translate-x-6' : 'bg-transparent translate-x-6') : 'translate-x-0 bg-red-500'
             }`}></div>
           </div>
