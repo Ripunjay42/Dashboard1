@@ -37,7 +37,7 @@ const StatusBar = ({ time, mqttConnected = false, pirAlert = 0, useMqtt = true, 
           title={useMqtt ? "MQTT Mode (Click for Keyboard)" : "Keyboard Mode (Click for MQTT)"}
         >
           <div className={`w-12 h-6 rounded-full transition-colors duration-300 ${
-            useMqtt ? (mqttConnected ? 'bg-green-500' : 'bg-red-500') : 'bg-yellow-500'
+            useMqtt ? (mqttConnected ? 'bg-transparent' : 'bg-transparent') : 'bg-transparent'
           }`}>
             <div className={`absolute top-1 left-1 w-4 h-4 bg-white rounded-full transition-transform duration-300 ${
               useMqtt ? 'translate-x-6' : 'translate-x-0'
