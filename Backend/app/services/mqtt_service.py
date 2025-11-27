@@ -28,8 +28,8 @@ class MQTTService:
         self.running = False
         self.thread = None
         
-    def on_connect(self, client, userdata, flags, rc):
-        """Callback when connected to MQTT broker"""
+    def on_connect(self, client, userdata, flags, rc, properties=None):
+        """Callback when connected to MQTT broker (API v2 signature)"""
         if rc == 0:
             print("✓ MQTT Connected. Subscribing to topics...")
             self.connected = True
@@ -43,8 +43,8 @@ class MQTTService:
             print(f"✗ MQTT Connection failed with code {rc}")
             self.connected = False
     
-    def on_disconnect(self, client, userdata, rc):
-        """Callback when disconnected from MQTT broker"""
+    def on_disconnect(self, client, userdata, flags, rc, properties=None):
+        """Callback when disconnected from MQTT broker (API v2 signature)"""
         print(f"✗ MQTT Disconnected (code: {rc})")
         self.connected = False
     

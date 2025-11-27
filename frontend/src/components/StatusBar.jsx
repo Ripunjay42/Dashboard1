@@ -30,28 +30,18 @@ const StatusBar = ({ time, mqttConnected = false, pirAlert = 0, useMqtt = true, 
   return (
     <div className="bg-gray-900/90 backdrop-blur-sm border-2 border-gray-700 rounded-3xl px-2 sm:px-2 py-2 sm:py-3 shadow-xl w-full max-w-[800px] mx-auto">
       <div className="flex flex-wrap items-center gap-2 sm:gap-4 text-xs sm:text-sm justify-center">
-        {/* MQTT Status Indicator */}
+        {/* Simple Toggle Switch */}
         <div 
-          className="flex items-center gap-1 cursor-pointer hover:opacity-80 transition-opacity"
+          className="relative inline-flex items-center cursor-pointer"
           onClick={onToggleMqtt}
-          title={useMqtt ? (mqttConnected ? "MQTT Connected (Click to use Keyboard)" : "MQTT Disconnected") : "Using Keyboard (Click to use MQTT)"}
+          title={useMqtt ? "MQTT Mode (Click for Keyboard)" : "Keyboard Mode (Click for MQTT)"}
         >
-          {useMqtt ? (
-            mqttConnected ? (
-              <MdWifi className="w-4 h-4 text-green-400 animate-pulse" />
-            ) : (
-              <MdWifiOff className="w-4 h-4 text-red-400" />
-            )
-          ) : (
-            <div className="w-4 h-4 text-yellow-400 font-bold text-xs flex items-center justify-center">KB</div>
-          )}
-          <div>
-            <div className="text-xs text-gray-400">
-              {useMqtt ? "MQTT" : "Keyboard"}
-            </div>
-            <div className={`text-xs font-bold ${useMqtt ? (mqttConnected ? 'text-green-400' : 'text-red-400') : 'text-yellow-400'}`}>
-              {useMqtt ? (mqttConnected ? 'ON' : 'OFF') : 'ON'}
-            </div>
+          <div className={`w-12 h-6 rounded-full transition-colors duration-300 ${
+            useMqtt ? (mqttConnected ? 'bg-green-500' : 'bg-red-500') : 'bg-yellow-500'
+          }`}>
+            <div className={`absolute top-1 left-1 w-4 h-4 bg-white rounded-full transition-transform duration-300 ${
+              useMqtt ? 'translate-x-6' : 'translate-x-0'
+            }`}></div>
           </div>
         </div>
         <div className="text-gray-500">|</div>
