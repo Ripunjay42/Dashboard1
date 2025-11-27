@@ -31,4 +31,9 @@ class Config:
     # Blind spot detection camera IDs - CORRECTED FOR JETSON
     LEFT_CAMERA_ID = int(os.environ.get('LEFT_CAMERA_ID', 2))   # Camera 2 for left blind spot
     RIGHT_CAMERA_ID = int(os.environ.get('RIGHT_CAMERA_ID', 4))  # Camera 4 for right blind spot
+    
+    # MQTT Configuration
+    MQTT_BROKER = os.environ.get('MQTT_BROKER', '10.42.0.1')
+    MQTT_PORT = int(os.environ.get('MQTT_PORT', 1883))
+    MQTT_ENABLED = os.environ.get('MQTT_ENABLED', 'true').lower() == 'true'
 

@@ -19,10 +19,12 @@ def create_app():
     from app.routes.hello_routes import hello_bp
     from app.routes.pothole_routes import pothole_bp
     from app.routes.blindspot_routes import blindspot_bp
+    from app.routes.mqtt_routes import mqtt_bp
     
     app.register_blueprint(hello_bp)
     app.register_blueprint(pothole_bp, url_prefix='/api/pothole')
     app.register_blueprint(blindspot_bp, url_prefix='/api/blindspot')
+    app.register_blueprint(mqtt_bp, url_prefix='/api/mqtt')
     
     # Models will be loaded lazily on first use (when user clicks feature)
     # No pre-initialization - cameras start only when user clicks Pothole/Blind Spot

@@ -18,6 +18,9 @@ const Dashboard = ({ onSelectUseCase }) => {
   const [isThrottling, setIsThrottling] = useState(false);
   const [leftTurnActive, setLeftTurnActive] = useState(false);
   const [rightTurnActive, setRightTurnActive] = useState(false);
+  const [pirAlert, setPirAlert] = useState(0);
+  const [mqttConnected, setMqttConnected] = useState(false);
+  const [useMqtt, setUseMqtt] = useState(true); // Toggle between MQTT and keyboard control
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -25,6 +28,78 @@ const Dashboard = ({ onSelectUseCase }) => {
     }, 1000);
     return () => clearInterval(timer);
   }, []);
+
+  // Start MQTT service on component mount
+  useEffect(() => {
+    const startMqtt = async () => {
+      try {
+        const response = await fetch('http://localhost:5000/api/mqtt/start', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ broker: '10.42.0.1', port: 1883 })
+        });
+        const data = await response.json();
+        if (data.status === 'success') {
+          console.log('✓ MQTT service started');
+          setMqttConnected(true);
+        }
+      } catch (error) {
+        console.error('✗ Failed to start MQTT service:', error);
+        setMqttConnected(false);
+      }
+    };
+
+    startMqtt();
+
+    return () => {
+      // Optionally stop MQTT on unmount
+      fetch('http://localhost:5000/api/mqtt/stop', { method: 'POST' }).catch(console.error);
+    };
+  }, []);
+
+  // Poll MQTT state periodically
+  useEffect(() => {
+    if (!useMqtt) return; // Skip polling if not using MQTT
+
+    const pollMqttState = async () => {
+      try {
+        const response = await fetch('http://localhost:5000/api/mqtt/state');
+        const data = await response.json();
+        
+        if (data.status === 'success' && data.data) {
+          const mqttData = data.data;
+          
+          // Update speed from MQTT (ADC value)
+          if (mqttData.speed !== undefined) {
+            setSpeed(mqttData.speed);
+          }
+          
+          // Update indicators from MQTT
+          if (mqttData.left_indicator !== undefined) {
+            setLeftTurnActive(mqttData.left_indicator === 1);
+          }
+          if (mqttData.right_indicator !== undefined) {
+            setRightTurnActive(mqttData.right_indicator === 1);
+          }
+          
+          // Update PIR alert
+          if (mqttData.pir_alert !== undefined) {
+            setPirAlert(mqttData.pir_alert);
+          }
+          
+          setMqttConnected(mqttData.connected || false);
+        }
+      } catch (error) {
+        console.error('Error polling MQTT state:', error);
+        setMqttConnected(false);
+      }
+    };
+
+    // Poll every 200ms for responsive updates
+    const interval = setInterval(pollMqttState, 200);
+    
+    return () => clearInterval(interval);
+  }, [useMqtt]);
 
   // Cleanup: Stop any active feature when component unmounts
   useEffect(() => {
@@ -37,7 +112,10 @@ const Dashboard = ({ onSelectUseCase }) => {
 
   // Throttle effect - increase speed while holding, decrease when released
   // Battery drains slightly when driving fast
+  // ONLY active when NOT using MQTT control
   useEffect(() => {
+    if (useMqtt) return; // Skip keyboard throttle control if using MQTT
+
     let throttleInterval;
     let releaseInterval;
     let batteryInterval;
@@ -67,10 +145,13 @@ const Dashboard = ({ onSelectUseCase }) => {
       clearInterval(releaseInterval);
       clearInterval(batteryInterval);
     };
-  }, [isThrottling]);
+  }, [isThrottling, useMqtt]);
 
   // Keyboard controls for speed, RPM, and turn signals
+  // ONLY active when NOT using MQTT control
   useEffect(() => {
+    if (useMqtt) return; // Skip keyboard control if using MQTT
+
     const handleKeyDown = (e) => {
       if (e.key === 'ArrowUp' && !e.repeat) {
         e.preventDefault();
@@ -108,7 +189,7 @@ const Dashboard = ({ onSelectUseCase }) => {
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('keyup', handleKeyUp);
     };
-  }, []);
+  }, [useMqtt]);
 
   // Stop active feature before switching to a new one
   const stopActiveFeature = async (currentFeature) => {
@@ -224,7 +305,13 @@ const Dashboard = ({ onSelectUseCase }) => {
             </div>
 
             {/* Bottom Status Bar */}
-            <StatusBar time={time} />
+            <StatusBar 
+              time={time} 
+              mqttConnected={mqttConnected}
+              pirAlert={pirAlert}
+              useMqtt={useMqtt}
+              onToggleMqtt={() => setUseMqtt(!useMqtt)}
+            />
           </div>
         </div>
       </div>
