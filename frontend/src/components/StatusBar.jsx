@@ -4,14 +4,11 @@ import {
   MdLocalGasStation, 
   MdMyLocation, 
   MdAccessTime, 
-  MdCalendarToday,
-  MdWifi,
-  MdWifiOff,
-  MdWarning
+  MdCalendarToday
 } from 'react-icons/md';
 import { TbManualGearbox } from 'react-icons/tb';
 
-const StatusBar = ({ time, mqttConnected = false, pirAlert = 0, useMqtt = true, onToggleMqtt }) => {
+const StatusBar = ({ time, mqttConnected = false, useMqtt = false, onToggleMqtt }) => {
   const bottomStatusItems = [
     { 
       id: 'ac', 
@@ -45,20 +42,6 @@ const StatusBar = ({ time, mqttConnected = false, pirAlert = 0, useMqtt = true, 
           </div>
         </div>
         <div className="text-gray-500">|</div>
-        
-        {/* PIR Alert Indicator */}
-        {pirAlert === 1 && (
-          <>
-            <div className="flex items-center gap-1 animate-pulse">
-              <MdWarning className="w-5 h-5 text-red-500" />
-              <div>
-                <div className="text-xs text-gray-400">Alert</div>
-                <div className="text-xs font-bold text-red-500">PIR DETECTED</div>
-              </div>
-            </div>
-            <div className="text-gray-500">|</div>
-          </>
-        )}
         
         {bottomStatusItems.map((item, index) => (
           <React.Fragment key={item.id}>

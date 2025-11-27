@@ -20,7 +20,7 @@ const Dashboard = ({ onSelectUseCase }) => {
   const [rightTurnActive, setRightTurnActive] = useState(false);
   const [pirAlert, setPirAlert] = useState(0);
   const [mqttConnected, setMqttConnected] = useState(false);
-  const [useMqtt, setUseMqtt] = useState(true); // Toggle between MQTT and keyboard control
+  const [useMqtt, setUseMqtt] = useState(false); // Toggle between MQTT and keyboard control - OFF by default
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -29,8 +29,10 @@ const Dashboard = ({ onSelectUseCase }) => {
     return () => clearInterval(timer);
   }, []);
 
-  // Start MQTT service on component mount
+  // Start MQTT service only when useMqtt is enabled
   useEffect(() => {
+    if (!useMqtt) return; // Don't start MQTT if toggle is off
+
     const startMqtt = async () => {
       try {
         const response = await fetch('http://localhost:5000/api/mqtt/start', {
@@ -52,10 +54,12 @@ const Dashboard = ({ onSelectUseCase }) => {
     startMqtt();
 
     return () => {
-      // Optionally stop MQTT on unmount
-      fetch('http://localhost:5000/api/mqtt/stop', { method: 'POST' }).catch(console.error);
+      // Stop MQTT when toggle is turned off
+      if (useMqtt) {
+        fetch('http://localhost:5000/api/mqtt/stop', { method: 'POST' }).catch(console.error);
+      }
     };
-  }, []);
+  }, [useMqtt]); // Run when useMqtt changes
 
   // Poll MQTT state periodically
   useEffect(() => {
@@ -291,7 +295,7 @@ const Dashboard = ({ onSelectUseCase }) => {
                           setActiveFeature(null);
                         }} />
                       ) : (
-                        <Car3DView />
+                        <Car3DView pirAlert={pirAlert} />
                       )}
                     </div>
                   </div>
@@ -308,7 +312,6 @@ const Dashboard = ({ onSelectUseCase }) => {
             <StatusBar 
               time={time} 
               mqttConnected={mqttConnected}
-              pirAlert={pirAlert}
               useMqtt={useMqtt}
               onToggleMqtt={() => setUseMqtt(!useMqtt)}
             />

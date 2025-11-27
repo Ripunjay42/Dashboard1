@@ -1,7 +1,8 @@
 import React from 'react';
+import { MdWarning } from 'react-icons/md';
 import carImage from '../assets/car_3d.png';
 
-const Car3DView = () => {
+const Car3DView = ({ pirAlert = 0 }) => {
   return (
     <div className="h-full w-full flex items-center justify-center relative bg-gray-900 overflow-hidden">
       {/* 3D Road Background with Extended Perspective */}
@@ -110,16 +111,19 @@ const Car3DView = () => {
       </div>
 
       {/* Status Display */}
-      {/* <div className="absolute bottom-6 left-1/2 -translate-x-1/2 text-center z-20">
-        <div className="backdrop-blur-md bg-gray-900/60 px-6 py-2 rounded-full border border-cyan-500/30 shadow-xl">
-          <div className="flex items-center gap-3">
-            <div className="w-2 h-2 bg-green-400 rounded-full"></div>
-            <span className="text-cyan-400 text-xs sm:text-sm font-semibold tracking-widest">
-              AUTONOMOUS MODE ACTIVE
-            </span>
+      {pirAlert === 1 && (
+        <div className="absolute top-6 left-1/2 -translate-x-1/2 text-center z-20">
+          <div className="backdrop-blur-md bg-red-900/80 px-6 py-3 rounded-full border-2 border-red-500 shadow-2xl animate-pulse">
+            <div className="flex items-center gap-3">
+              <MdWarning className="w-6 h-6 text-red-400 animate-bounce" />
+              <span className="text-red-200 text-sm sm:text-base font-bold tracking-widest">
+                Motion Detected in Vehicle
+              </span>
+              <MdWarning className="w-6 h-6 text-red-400 animate-bounce" />
+            </div>
           </div>
         </div>
-      </div> */}
+      )}
 
       {/* Corner Frame Decorations */}
       <div className="absolute top-4 left-4 w-12 h-12 border-l-2 border-t-2 border-gray-500/30 rounded-tl-lg"></div>
