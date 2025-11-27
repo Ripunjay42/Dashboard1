@@ -8,19 +8,19 @@ import {
 } from 'react-icons/md';
 import { TbManualGearbox } from 'react-icons/tb';
 
-const StatusBar = ({ time, mqttConnected = false, useMqtt = false, onToggleMqtt }) => {
+const StatusBar = ({ time, mqttConnected = false, useMqtt = false, onToggleMqtt, tripDistance = 1000 }) => {
   const bottomStatusItems = [
-    { 
-      id: 'ac', 
-      label: 'Climate', 
-      icon: <MdAcUnit className="w-4 h-4 text-cyan-400" />, 
-      value: '22°C' 
-    },
+    // { 
+    //   id: 'ac', 
+    //   label: 'Climate', 
+    //   icon: <MdAcUnit className="w-4 h-4 text-cyan-400" />, 
+    //   value: '22°C' 
+    // },
     { 
       id: 'distance', 
       label: 'Trip', 
       icon: <MdMyLocation className="w-4 h-4 text-green-400" />, 
-      value: '2134km' 
+      value: `${Math.floor(tripDistance)}km` 
     }
   ];
 

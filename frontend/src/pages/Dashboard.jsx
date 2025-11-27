@@ -21,6 +21,7 @@ const Dashboard = ({ onSelectUseCase }) => {
   const [pirAlert, setPirAlert] = useState(0);
   const [mqttConnected, setMqttConnected] = useState(false);
   const [useMqtt, setUseMqtt] = useState(false); // Toggle between MQTT and keyboard control - OFF by default
+  const [tripDistance, setTripDistance] = useState(1000); // Trip distance in km, starts at 1000
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -28,6 +29,28 @@ const Dashboard = ({ onSelectUseCase }) => {
     }, 1000);
     return () => clearInterval(timer);
   }, []);
+
+  // Update trip distance based on speed
+  useEffect(() => {
+    if (speed === 0) return; // Don't update if not moving
+
+    const updateInterval = setInterval(() => {
+      setTripDistance(prev => {
+        // Calculate distance: speed (km/h) / 3600 (seconds per hour) = km per second
+        const distancePerSecond = speed / 3600;
+        const newDistance = prev + distancePerSecond;
+        
+        // Reset to 1000 if exceeds 10000
+        if (newDistance >= 10000) {
+          return 1000;
+        }
+        
+        return newDistance;
+      });
+    }, 1000); // Update every second
+
+    return () => clearInterval(updateInterval);
+  }, [speed]);
 
   // Start MQTT service only when useMqtt is enabled
   useEffect(() => {
@@ -314,6 +337,7 @@ const Dashboard = ({ onSelectUseCase }) => {
               mqttConnected={mqttConnected}
               useMqtt={useMqtt}
               onToggleMqtt={() => setUseMqtt(!useMqtt)}
+              tripDistance={tripDistance}
             />
           </div>
         </div>
