@@ -703,7 +703,7 @@ class DualCameraManager:
         return True
     
     def _left_video_loop(self):
-        """Left camera video thread - OPTIMIZED FOR JETSON WITH LAG PREVENTION"""
+        """Left camera video thread - AGGRESSIVE LAG PREVENTION FOR JETSON"""
         frame_counter = 0
         last_buffer_flush = time.time()
         
@@ -712,16 +712,21 @@ class DualCameraManager:
                 time.sleep(0.01)
                 continue
             
-            # CRITICAL FOR JETSON: Periodically flush camera buffer to prevent lag accumulation
+            # AGGRESSIVE BUFFER FLUSHING: Every 1 second to prevent ANY lag accumulation
             current_time = time.time()
-            if current_time - last_buffer_flush > 5.0:  # Every 5 seconds
-                # Flush buffer by reading and discarding multiple frames
-                for _ in range(3):
+            if current_time - last_buffer_flush > 1.0:  # Every 1 second (was 5)
+                # Flush buffer aggressively - discard ALL buffered frames
+                for _ in range(10):  # Flush up to 10 frames (was 3)
                     self.left_cap.grab()
                 last_buffer_flush = current_time
             
-            # Read latest frame (buffer=1 prevents accumulation)
-            ret, frame = self.left_cap.read()
+            # ALWAYS grab first to ensure we get the NEWEST frame (not buffered old one)
+            if not self.left_cap.grab():
+                time.sleep(0.001)
+                continue
+            
+            # Retrieve the grabbed frame
+            ret, frame = self.left_cap.retrieve()
             if not ret or frame is None:
                 time.sleep(0.001)
                 continue
@@ -774,7 +779,7 @@ class DualCameraManager:
             time.sleep(0.001)
     
     def _right_video_loop(self):
-        """Right camera video thread - OPTIMIZED FOR JETSON WITH LAG PREVENTION"""
+        """Right camera video thread - AGGRESSIVE LAG PREVENTION FOR JETSON"""
         frame_counter = 0
         last_buffer_flush = time.time()
         
@@ -783,16 +788,21 @@ class DualCameraManager:
                 time.sleep(0.01)
                 continue
             
-            # CRITICAL FOR JETSON: Periodically flush camera buffer to prevent lag accumulation
+            # AGGRESSIVE BUFFER FLUSHING: Every 1 second to prevent ANY lag accumulation
             current_time = time.time()
-            if current_time - last_buffer_flush > 5.0:  # Every 5 seconds
-                # Flush buffer by reading and discarding multiple frames
-                for _ in range(3):
+            if current_time - last_buffer_flush > 1.0:  # Every 1 second (was 5)
+                # Flush buffer aggressively - discard ALL buffered frames
+                for _ in range(10):  # Flush up to 10 frames (was 3)
                     self.right_cap.grab()
                 last_buffer_flush = current_time
             
-            # Read latest frame (buffer=1 prevents accumulation)
-            ret, frame = self.right_cap.read()
+            # ALWAYS grab first to ensure we get the NEWEST frame (not buffered old one)
+            if not self.right_cap.grab():
+                time.sleep(0.001)
+                continue
+            
+            # Retrieve the grabbed frame
+            ret, frame = self.right_cap.retrieve()
             if not ret or frame is None:
                 time.sleep(0.001)
                 continue

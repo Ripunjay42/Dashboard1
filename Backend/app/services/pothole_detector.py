@@ -588,7 +588,7 @@ class VideoStreamManager:
     
     def _video_stream_loop(self):
         """
-        THREAD 1: FAST Video Streaming with LAG PREVENTION
+        THREAD 1: FAST Video Streaming with AGGRESSIVE LAG PREVENTION
         Applies latest detection overlay and streams at 15 FPS (Jetson optimized)
         """
         frame_counter = 0
@@ -599,11 +599,11 @@ class VideoStreamManager:
             if not self.cap or not self.cap.isOpened():
                 break
             
-            # CRITICAL FOR JETSON: Periodically flush camera buffer to prevent lag accumulation
+            # AGGRESSIVE BUFFER FLUSHING: Every 1 second to prevent ANY lag accumulation
             current_time = time.time()
-            if current_time - last_buffer_flush > 5.0:  # Every 5 seconds
-                # Flush buffer by reading and discarding multiple frames
-                for _ in range(3):
+            if current_time - last_buffer_flush > 1.0:  # Every 1 second (was 5)
+                # Flush buffer aggressively - discard ALL buffered frames
+                for _ in range(10):  # Flush up to 10 frames (was 3)
                     self.cap.grab()
                 last_buffer_flush = current_time
             
@@ -614,8 +614,14 @@ class VideoStreamManager:
                     torch.cuda.empty_cache()
                 last_gc = current_time
             
-            ret, frame = self.cap.read()
-            if not ret:
+            # ALWAYS grab first to ensure we get the NEWEST frame (not buffered old one)
+            if not self.cap.grab():
+                time.sleep(0.001)
+                continue
+            
+            # Retrieve the grabbed frame
+            ret, frame = self.cap.retrieve()
+            if not ret or frame is None:
                 time.sleep(0.001)
                 continue
             
