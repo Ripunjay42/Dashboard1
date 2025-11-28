@@ -1031,3 +1031,295 @@ class DualCameraManager:
             pass
         except Exception as e:
             print(f"Performance monitoring error: {e}")
+
+
+class SingleCameraManager:
+    """
+    SINGLE CAMERA OPTIMIZED: One camera at a time for reduced lag on Jetson
+    
+    OPTIMIZED FOR JETSON ORIN NANO:
+    - Single camera thread: Read + Encode frames (FAST)
+    - Single AI thread: YOLO detection (Background)
+    - Reduced memory usage: Only one camera active
+    - Better frame rate: All resources dedicated to one camera
+    - Lower latency: No dual-camera synchronization needed
+    
+    Result: Smooth single camera performance on Jetson!
+    """
+    
+    def __init__(self, camera_id=0, camera_side='left'):
+        self.camera_id = camera_id
+        self.camera_side = camera_side  # 'left' or 'right'
+        
+        # Single camera
+        self.cap = None
+        
+        self.detector = None
+        self.is_jetson = self._detect_jetson()
+        
+        # Single camera frame buffer
+        self.latest_frame = None
+        self.encoded = None
+        self.danger = False
+        
+        self.running = False
+        self.active = False
+        
+        # 2 threads (video + AI)
+        self.video_thread = None
+        self.ai_thread = None
+        
+        self.lock = threading.Lock()
+        
+        # Performance monitoring
+        self.start_time = None
+        self.frame_count = 0
+    
+    def _detect_jetson(self):
+        """Detect if running on Jetson device"""
+        try:
+            if os.path.exists('/etc/nv_tegra_release'):
+                return True
+            with open('/proc/device-tree/model', 'r') as f:
+                model = f.read().lower()
+                return 'jetson' in model or 'tegra' in model
+        except:
+            return False
+    
+    def _get_camera_pipeline(self):
+        """Get optimized camera pipeline for single camera"""
+        if self.is_jetson:
+            # Jetson: V4L2 works best
+            return [
+                (self.camera_id, cv2.CAP_V4L2),
+                (self.camera_id, cv2.CAP_ANY),
+                (self.camera_id, None)
+            ]
+        else:
+            # Windows: DirectShow
+            return [
+                (self.camera_id, cv2.CAP_DSHOW),
+                (self.camera_id, cv2.CAP_ANY)
+            ]
+    
+    def _open_camera(self):
+        """Open single camera with optimized settings"""
+        if self.cap is not None and self.cap.isOpened():
+            return True
+        
+        print(f"📹 Opening {self.camera_side} camera (ID: {self.camera_id})...")
+        start_time = time.time()
+        
+        pipelines = self._get_camera_pipeline()
+        
+        for idx, (pipeline, backend) in enumerate(pipelines):
+            try:
+                if backend is None:
+                    self.cap = cv2.VideoCapture(pipeline)
+                else:
+                    self.cap = cv2.VideoCapture(pipeline, backend)
+                
+                if self.cap.isOpened():
+                    # Configure for low latency
+                    self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)  # No buffering
+                    self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+                    self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+                    self.cap.set(cv2.CAP_PROP_FPS, 30)
+                    
+                    # Try MJPEG for faster capture
+                    try:
+                        self.cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*'MJPG'))
+                    except:
+                        pass
+                    
+                    # Test read
+                    time.sleep(0.2)
+                    ret, frame = self.cap.read()
+                    if ret and frame is not None:
+                        open_time = time.time() - start_time
+                        print(f"   ✓ Camera opened in {open_time:.2f}s")
+                        return True
+                
+                if self.cap:
+                    self.cap.release()
+                    self.cap = None
+                    
+            except Exception as e:
+                print(f"   Attempt {idx+1} failed: {e}")
+                if self.cap:
+                    self.cap.release()
+                    self.cap = None
+        
+        print(f"   ❌ Failed to open camera {self.camera_id}")
+        return False
+    
+    def start(self):
+        """Start single camera blind spot detection"""
+        if self.active:
+            return True
+        
+        if not self._open_camera():
+            return False
+        
+        # Load detector
+        if self.detector is None:
+            self.detector = get_global_detector()
+        
+        self.running = True
+        self.active = True
+        
+        # Clear GPU/CPU cache
+        try:
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+            gc.collect()
+        except:
+            pass
+        
+        # Start 2 threads for single camera
+        self.video_thread = threading.Thread(target=self._video_loop, daemon=True)
+        self.ai_thread = threading.Thread(target=self._ai_loop, daemon=True)
+        
+        self.video_thread.start()
+        self.ai_thread.start()
+        
+        print(f"✓ {self.camera_side.capitalize()} blind spot detection started with 2 threads")
+        return True
+    
+    def _video_loop(self):
+        """Video thread - OPTIMIZED FOR JETSON (single camera)"""
+        frame_counter = 0
+        
+        while self.running:
+            if not self.cap or not self.cap.isOpened():
+                time.sleep(0.01)
+                continue
+            
+            ret, frame = self.cap.read()
+            if not ret or frame is None:
+                time.sleep(0.001)
+                continue
+            
+            frame_counter += 1
+            if frame_counter > 1000000:
+                frame_counter = 0
+            
+            # Store frame for AI thread
+            with self.lock:
+                if self.latest_frame is not None:
+                    del self.latest_frame
+                self.latest_frame = frame.copy()
+                danger = self.danger
+            
+            # Draw grid overlay
+            is_left = (self.camera_side == 'left')
+            color = (0, 0, 255) if danger else (0, 255, 0)
+            self.detector.draw_side_mirror_grid(frame, color, is_left=is_left)
+            
+            # Optimized encoding for Jetson - larger size for single camera
+            if self.is_jetson:
+                encode_size = (480, 270)   # Larger since only one camera
+                encode_quality = 55        # Good balance
+            else:
+                encode_size = (640, 360)
+                encode_quality = 65
+            
+            frame_resized = cv2.resize(frame, encode_size, interpolation=cv2.INTER_AREA)
+            ret_encode, buffer = cv2.imencode('.jpg', frame_resized, 
+                                              [cv2.IMWRITE_JPEG_QUALITY, encode_quality,
+                                               cv2.IMWRITE_JPEG_OPTIMIZE, 1])
+            
+            del frame_resized
+            
+            if ret_encode:
+                with self.lock:
+                    if self.encoded is not None:
+                        del self.encoded
+                    self.encoded = buffer.tobytes()
+                del buffer
+            
+            del frame
+            time.sleep(0.001)  # Prevent CPU spinning
+    
+    def _ai_loop(self):
+        """AI thread - OPTIMIZED FOR JETSON (single camera, more resources)"""
+        frame_counter = 0
+        last_gc = time.time()
+        
+        # Jetson can process more frequently with single camera
+        frame_skip = 2 if self.is_jetson else 3
+        
+        while self.running:
+            frame_counter += 1
+            if frame_counter % frame_skip != 0:
+                time.sleep(0.015)
+                continue
+            
+            # Periodic garbage collection
+            current_time = time.time()
+            if current_time - last_gc > 60:
+                gc.collect()
+                last_gc = current_time
+            
+            if frame_counter > 1000000:
+                frame_counter = 0
+            
+            with self.lock:
+                if self.latest_frame is None:
+                    time.sleep(0.01)
+                    continue
+                # Larger frame for single camera (more resources available)
+                frame_small = cv2.resize(self.latest_frame, (384, 216), 
+                                        interpolation=cv2.INTER_LINEAR)
+            
+            try:
+                is_left = (self.camera_side == 'left')
+                danger, detected_vehicles = self.detector.process_frame_fast(frame_small, is_left=is_left)
+                
+                del detected_vehicles
+                del frame_small
+                
+                with self.lock:
+                    self.danger = danger
+                    
+            except Exception as e:
+                print(f"AI error: {e}")
+                if 'frame_small' in locals():
+                    del frame_small
+                time.sleep(0.1)
+    
+    def get_frame(self):
+        """Get encoded camera frame"""
+        with self.lock:
+            return self.encoded
+    
+    def is_danger(self):
+        """Check if blind spot has danger"""
+        with self.lock:
+            return bool(self.danger)
+    
+    def stop(self):
+        """Stop single camera blind spot detection"""
+        self.running = False
+        self.active = False
+        
+        if self.video_thread:
+            self.video_thread.join(timeout=2)
+        if self.ai_thread:
+            self.ai_thread.join(timeout=2)
+        
+        if self.cap:
+            self.cap.release()
+            self.cap = None
+        
+        # Clear buffers
+        with self.lock:
+            self.latest_frame = None
+            self.encoded = None
+            self.danger = False
+        
+        print(f"✓ {self.camera_side.capitalize()} blind spot detection stopped")
+    
+    def is_active(self):
+        """Check if detection is active"""
+        return self.active

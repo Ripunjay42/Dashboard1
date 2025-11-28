@@ -7,12 +7,12 @@ const Car3DView = ({ pirAlert = 0 }) => {
     <div className="h-full w-full flex items-center justify-center relative bg-gray-900 overflow-hidden">
       {/* 3D Road Background with Extended Perspective */}
       <div className="absolute inset-0 flex items-center justify-center" style={{
-        perspective: '3000px',
+        perspective: '3500px',
         perspectiveOrigin: 'center center'
       }}>
         {/* Extended Road Surface with 3D Transform */}
         <div 
-          className="relative w-full h-[1500%] bg-gray-900"
+          className="relative w-full h-[1200%] bg-gray-900"
           style={{
             transform: 'rotateX(78deg) translateZ(-500px) translateY(-50%)',
             transformOrigin: 'center center',

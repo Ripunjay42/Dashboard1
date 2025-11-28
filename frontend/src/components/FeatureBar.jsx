@@ -13,19 +13,19 @@ const FeatureBar = ({ activeFeature, onFeatureClick }) => {
     { 
       id: 'pothole', 
       label: 'Pothole', 
-      icon: <TbRoad className="w-4 h-4 text-orange-400" />, 
+      icon: <TbRoad className="w-5 h-5 text-orange-400" />, 
       status: 'active' 
     },
     { 
       id: 'blindspot', 
       label: 'Blind Spot', 
-      icon: <TbEye className="w-4 h-4 text-purple-400" />, 
+      icon: <TbEye className="w-5 h-5 text-purple-400" />, 
       status: 'active' 
     },
     { 
       id: 'dms', 
       label: 'DMS', 
-      icon: <GiCarSeat className="w-4 h-4 text-blue-400" />, 
+      icon: <GiCarSeat className="w-5 h-5 text-blue-400" />, 
       status: 'active' 
     },
   ];
@@ -34,13 +34,13 @@ const FeatureBar = ({ activeFeature, onFeatureClick }) => {
     { 
       id: 'cruise', 
       label: 'Cruise', 
-      icon: <GiSpeedometer className="w-4 h-4 text-green-400" />, 
+      icon: <GiSpeedometer className="w-5 h-5 text-green-400" />, 
       status: 'active' 
     },
     { 
       id: 'security', 
       label: 'Security', 
-      icon: <IoShieldCheckmark className="w-4 h-4 text-cyan-400" />, 
+      icon: <IoShieldCheckmark className="w-5 h-5 text-cyan-400" />, 
       status: 'active' 
     }
   ];
@@ -69,13 +69,11 @@ const FeatureBar = ({ activeFeature, onFeatureClick }) => {
           {/* Home Button */}
           <button
             onClick={handleHomeClick}
-            className={`flex items-center gap-2 px-3 sm:px-4 py-2 rounded-lg transition-all text-xs sm:text-sm text-white ${
-              activeFeature === null ? 'bg-gray-700' : 'hover:bg-gray-800'
-            }`}
+            className={`flex items-center gap-2 px-3 sm:px-4 py-2 rounded-lg transition-all text-xs sm:text-sm text-white hover:bg-gray-800`}
           >
-            <TbHome className="w-4 h-4" />
+            <TbHome className="w-5 h-5" />
             <div className="text-left">
-              <div className="font-bold">Home</div>
+              <div className="font-bold text-md">Home</div>
             </div>
           </button>
 
@@ -97,7 +95,7 @@ const FeatureBar = ({ activeFeature, onFeatureClick }) => {
             >
               <span className="text-xl">{algo.icon}</span>
               <div className="text-left">
-                <div className="font-bold">{algo.label}</div>
+                <div className="font-bold text-md">{algo.label}</div>
               </div>
             </button>
           ))}
@@ -120,7 +118,7 @@ const FeatureBar = ({ activeFeature, onFeatureClick }) => {
             >
               <span className="text-xl">{item.icon}</span>
               <div className="text-left">
-                <div className="font-bold">{item.label}</div>
+                <div className="font-bold text-md">{item.label}</div>
               </div>
             </button>
           ))}

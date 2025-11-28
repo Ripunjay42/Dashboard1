@@ -589,7 +589,7 @@ class VideoStreamManager:
     def _video_stream_loop(self):
         """
         THREAD 1: FAST Video Streaming
-        Applies latest detection overlay and streams at 15 FPS (Jetson optimized)
+        OPTIMIZED FOR JETSON - Reduced resolution and faster encoding
         """
         frame_counter = 0
         
@@ -609,6 +609,8 @@ class VideoStreamManager:
             
             # Save raw frame for AI thread + get latest mask (single lock)
             with self.lock:
+                if self.latest_frame is not None:
+                    del self.latest_frame
                 self.latest_frame = frame.copy()
                 current_mask = self.current_mask
             
@@ -620,27 +622,64 @@ class VideoStreamManager:
             else:
                 overlay_frame = frame
             
-            # Smart resize for Jetson - smaller but good quality
+            # JETSON OPTIMIZED: Smaller output for faster streaming
             if hasattr(self.detector, 'is_jetson') and self.detector.is_jetson:
-                overlay_frame = cv2.resize(overlay_frame, (480, 360), interpolation=cv2.INTER_AREA)
+                # Smaller resolution for Jetson - reduces encoding time significantly
+                overlay_frame = cv2.resize(overlay_frame, (400, 300), interpolation=cv2.INTER_AREA)
+                encode_quality = 50  # Lower quality for speed
+            else:
+                overlay_frame = cv2.resize(overlay_frame, (640, 480), interpolation=cv2.INTER_AREA)
+                encode_quality = self.jpeg_quality
             
             # Fast JPEG encoding with optimization flag
             encode_param = [
-                int(cv2.IMWRITE_JPEG_QUALITY), self.jpeg_quality,
+                int(cv2.IMWRITE_JPEG_QUALITY), encode_quality,
                 int(cv2.IMWRITE_JPEG_OPTIMIZE), 1  # Enable fast encoding
             ]
-            ret, buffer = cv2.imencode('.jpg', overlay_frame, encode_param)
+            ret_enc, buffer = cv2.imencode('.jpg', overlay_frame, encode_param)
             
-            if ret:
+            del overlay_frame
+            
+            if ret_enc:
                 with self.lock:
+                    if self.encoded_frame is not None:
+                        del self.encoded_frame
                     self.encoded_frame = buffer.tobytes()
+                del buffer
+            
+            del frame
+            
+            # Small sleep to prevent CPU spinning on Jetson
+            if hasattr(self.detector, 'is_jetson') and self.detector.is_jetson:
+                time.sleep(0.001)
     
     def _ai_inference_loop(self):
         """
-        THREAD 2: INSTANT AI Inference
-        Optimized for absolute minimum latency
+        THREAD 2: AI Inference
+        OPTIMIZED FOR JETSON - Frame skipping and memory management
         """
+        frame_counter = 0
+        last_gc = time.time()
+        
+        # Jetson: Skip more frames to reduce load
+        frame_skip = 2 if (hasattr(self.detector, 'is_jetson') and self.detector.is_jetson) else 1
+        
         while self.is_running:
+            frame_counter += 1
+            
+            # Frame skipping for Jetson
+            if frame_counter % frame_skip != 0:
+                time.sleep(0.01)
+                continue
+            
+            # Periodic garbage collection for Jetson
+            current_time = time.time()
+            if current_time - last_gc > 30:  # Every 30 seconds
+                gc.collect()
+                if hasattr(self.detector, 'device') and self.detector.device == 'cuda':
+                    torch.cuda.empty_cache()
+                last_gc = current_time
+            
             # Get latest frame copy (non-blocking)
             with self.lock:
                 if self.latest_frame is None:
@@ -649,8 +688,11 @@ class VideoStreamManager:
                 
                 # Adaptive resize based on device (CUDA vs CPU)
                 if hasattr(self.detector, 'device') and self.detector.device == 'cuda':
-                    # CUDA MODE: Can handle larger frames for better quality!
-                    frame_small = cv2.resize(self.latest_frame, (320, 240), interpolation=cv2.INTER_LINEAR)
+                    # CUDA MODE: Smaller for Jetson memory efficiency
+                    if hasattr(self.detector, 'is_jetson') and self.detector.is_jetson:
+                        frame_small = cv2.resize(self.latest_frame, (256, 192), interpolation=cv2.INTER_LINEAR)
+                    else:
+                        frame_small = cv2.resize(self.latest_frame, (320, 240), interpolation=cv2.INTER_LINEAR)
                 else:
                     # CPU MODE: Keep small for speed
                     frame_small = cv2.resize(self.latest_frame, (160, 120), interpolation=cv2.INTER_LINEAR)
@@ -658,52 +700,62 @@ class VideoStreamManager:
                 # CRITICAL: Store original dimensions inside lock to prevent race condition
                 original_h, original_w = self.latest_frame.shape[:2]
             
-            # Run AI inference immediately (GPU accelerated if CUDA available!)
-            mask = self.detector.detect(frame_small)
-            
-            # Resize mask back to original size for overlay (using stored dimensions)
-            mask_full = cv2.resize(mask, (original_w, original_h), 
-                                  interpolation=cv2.INTER_NEAREST)
-            
-            # Check if pothole detected
-            pothole_pixels = np.sum(mask_full > 0)
-            total_pixels = mask_full.shape[0] * mask_full.shape[1]
-            is_detected = (pothole_pixels / total_pixels) > 0.005
-            
-            # Smoothing with history
-            self.detection_history.append(is_detected)
-            if len(self.detection_history) > self.detection_history_size:
-                self.detection_history.pop(0)
-            
-            detections_count = sum(self.detection_history)
-            
-            # Hysteresis logic for stable detection
-            if not self.is_currently_detecting:
-                if detections_count >= self.min_detections_to_start:
-                    self.is_currently_detecting = True
-                    self.frames_since_detection = 0
-                    with self.lock:
-                        self.current_mask = mask_full
-                        self.pothole_detected = True
-            else:
-                if detections_count >= self.min_detections_to_continue:
-                    self.frames_since_detection = 0
-                    with self.lock:
-                        self.current_mask = mask_full
-                        self.pothole_detected = True
-                else:
-                    self.frames_since_detection += 1
-                    if self.frames_since_detection > self.detection_persistence:
-                        self.is_currently_detecting = False
+            try:
+                # Run AI inference immediately (GPU accelerated if CUDA available!)
+                mask = self.detector.detect(frame_small)
+                
+                # Resize mask back to original size for overlay (using stored dimensions)
+                mask_full = cv2.resize(mask, (original_w, original_h), 
+                                      interpolation=cv2.INTER_NEAREST)
+                
+                del frame_small
+                del mask
+                
+                # Check if pothole detected
+                pothole_pixels = np.sum(mask_full > 0)
+                total_pixels = mask_full.shape[0] * mask_full.shape[1]
+                is_detected = (pothole_pixels / total_pixels) > 0.005
+                
+                # Smoothing with history
+                self.detection_history.append(is_detected)
+                if len(self.detection_history) > self.detection_history_size:
+                    self.detection_history.pop(0)
+                
+                detections_count = sum(self.detection_history)
+                
+                # Hysteresis logic for stable detection
+                if not self.is_currently_detecting:
+                    if detections_count >= self.min_detections_to_start:
+                        self.is_currently_detecting = True
+                        self.frames_since_detection = 0
                         with self.lock:
-                            self.current_mask = None
-                            self.pothole_detected = False
+                            self.current_mask = mask_full
+                            self.pothole_detected = True
+                else:
+                    if detections_count >= self.min_detections_to_continue:
+                        self.frames_since_detection = 0
+                        with self.lock:
+                            self.current_mask = mask_full
+                            self.pothole_detected = True
+                    else:
+                        self.frames_since_detection += 1
+                        if self.frames_since_detection > self.detection_persistence:
+                            self.is_currently_detecting = False
+                            with self.lock:
+                                self.current_mask = None
+                                self.pothole_detected = False
+                
+                del mask_full
+                
+            except Exception as e:
+                print(f"AI inference error: {e}")
+                if 'frame_small' in locals():
+                    del frame_small
+                time.sleep(0.1)
             
-            # FRAME SKIP: Only needed on CPU mode to prevent overload
-            # GPU mode can handle full-speed processing without throttling
-            if hasattr(self.detector, 'is_jetson') and self.detector.is_jetson and self.detector.device == 'cpu':
-                time.sleep(0.033)  # ~30 FPS AI processing on CPU mode
-                # CUDA mode: No delay - GPU can process at full speed!
+            # Small delay for Jetson to prevent CPU overload
+            if hasattr(self.detector, 'is_jetson') and self.detector.is_jetson:
+                time.sleep(0.01)
     
     def get_encoded_frame(self):
         """Get pre-encoded JPEG frame for MJPEG streaming"""
