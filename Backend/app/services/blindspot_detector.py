@@ -703,13 +703,22 @@ class DualCameraManager:
         return True
     
     def _left_video_loop(self):
-        """Left camera video thread - OPTIMIZED FOR JETSON"""
+        """Left camera video thread - OPTIMIZED FOR JETSON WITH LAG PREVENTION"""
         frame_counter = 0
+        last_buffer_flush = time.time()
         
         while self.running:
             if not self.left_cap or not self.left_cap.isOpened():
                 time.sleep(0.01)
                 continue
+            
+            # CRITICAL FOR JETSON: Periodically flush camera buffer to prevent lag accumulation
+            current_time = time.time()
+            if current_time - last_buffer_flush > 5.0:  # Every 5 seconds
+                # Flush buffer by reading and discarding multiple frames
+                for _ in range(3):
+                    self.left_cap.grab()
+                last_buffer_flush = current_time
             
             # Read latest frame (buffer=1 prevents accumulation)
             ret, frame = self.left_cap.read()
@@ -740,7 +749,7 @@ class DualCameraManager:
             # Optimized Jetson encoding - good balance of size/quality
             if self.is_jetson:
                 encode_size = (400, 225)   # Reasonable size
-                encode_quality = 60        # Good quality
+                encode_quality = 50        # Lower quality for faster encoding on Jetson
             else:
                 encode_size = (400, 225)
                 encode_quality = 60
@@ -765,13 +774,22 @@ class DualCameraManager:
             time.sleep(0.001)
     
     def _right_video_loop(self):
-        """Right camera video thread - OPTIMIZED FOR JETSON"""
+        """Right camera video thread - OPTIMIZED FOR JETSON WITH LAG PREVENTION"""
         frame_counter = 0
+        last_buffer_flush = time.time()
         
         while self.running:
             if not self.right_cap or not self.right_cap.isOpened():
                 time.sleep(0.01)
                 continue
+            
+            # CRITICAL FOR JETSON: Periodically flush camera buffer to prevent lag accumulation
+            current_time = time.time()
+            if current_time - last_buffer_flush > 5.0:  # Every 5 seconds
+                # Flush buffer by reading and discarding multiple frames
+                for _ in range(3):
+                    self.right_cap.grab()
+                last_buffer_flush = current_time
             
             # Read latest frame (buffer=1 prevents accumulation)
             ret, frame = self.right_cap.read()
@@ -802,7 +820,7 @@ class DualCameraManager:
             # Optimized Jetson encoding - good balance of size/quality
             if self.is_jetson:
                 encode_size = (400, 225)   # Reasonable size
-                encode_quality = 60        # Good quality
+                encode_quality = 50        # Lower quality for faster encoding on Jetson
             else:
                 encode_size = (400, 225)
                 encode_quality = 60
@@ -832,17 +850,19 @@ class DualCameraManager:
         last_gc = time.time()
         
         while self.running:
-            # Frame skipping for Windows CPU (process every 3rd frame = 10 FPS AI)
+            # Frame skipping for CPU (process every 3rd frame = 10 FPS AI)
             frame_counter += 1
             if frame_counter % 3 != 0:
                 time.sleep(0.02)  # Small delay when skipping
                 continue
             
-            # Periodic garbage collection to prevent memory accumulation
+            # Periodic garbage collection to prevent memory accumulation (more frequent on Jetson)
             current_time = time.time()
-            if current_time - last_gc > 60:  # Every 60 seconds
-                import gc
+            gc_interval = 30 if self.is_jetson else 60  # Every 30 seconds on Jetson
+            if current_time - last_gc > gc_interval:
                 gc.collect()
+                if self.is_jetson and torch.cuda.is_available():
+                    torch.cuda.empty_cache()
                 last_gc = current_time
                 print("🗑️ Left AI: Garbage collection performed")
             
@@ -885,19 +905,21 @@ class DualCameraManager:
         last_gc = time.time()
         
         while self.running:
-            # Frame skipping for Windows CPU (process every 3rd frame = 10 FPS AI)
+            # Frame skipping for CPU (process every 3rd frame = 10 FPS AI)
             frame_counter += 1
             if frame_counter % 3 != 0:
                 time.sleep(0.02)  # Small delay when skipping
                 continue
             
-            # Periodic garbage collection to prevent memory accumulation
+            # Periodic garbage collection to prevent memory accumulation (more frequent on Jetson)
             current_time = time.time()
-            if current_time - last_gc > 60:  # Every 60 seconds
-                import gc
+            gc_interval = 30 if self.is_jetson else 60  # Every 30 seconds on Jetson
+            if current_time - last_gc > gc_interval:
                 gc.collect()
+                if self.is_jetson and torch.cuda.is_available():
+                    torch.cuda.empty_cache()
                 last_gc = current_time
-                print("Right AI: Garbage collection performed")
+                print("🗑️ Right AI: Garbage collection performed")
             
             # Prevent frame counter overflow
             if frame_counter > 1000000:

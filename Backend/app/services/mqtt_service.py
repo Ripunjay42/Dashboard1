@@ -27,6 +27,7 @@ class MQTTService:
         self.connected = False
         self.running = False
         self.thread = None
+        self._stop_event = threading.Event()  # Thread-safe stop signal
         
     def on_connect(self, client, userdata, flags, rc, properties=None):
         """Callback when connected to MQTT broker (API v2 signature)"""
@@ -50,6 +51,10 @@ class MQTTService:
     
     def on_message(self, client, userdata, msg):
         """Callback when a message is received"""
+        # CRITICAL: Check if service is still running before processing
+        if not self.running:
+            return  # Ignore messages when service is stopped
+            
         try:
             payload = msg.payload.decode().strip()
             topic = msg.topic
@@ -73,8 +78,8 @@ class MQTTService:
                 self.state['right_indicator'] = value
                 print(f"Right Indicator: {value}")
             
-            # Emit state update via SocketIO if available
-            if self.socketio and self.connected:
+            # Emit state update via SocketIO if available and running
+            if self.socketio and self.connected and self.running:
                 self.socketio.emit('mqtt_update', self.state, namespace='/mqtt')
                 
         except ValueError as e:
@@ -89,6 +94,9 @@ class MQTTService:
             return True
         
         try:
+            # Clear stop event
+            self._stop_event.clear()
+            
             # Create MQTT client (using callback API version 2)
             self.client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
             self.client.on_connect = self.on_connect
@@ -112,18 +120,70 @@ class MQTTService:
         """Run MQTT client loop in background thread"""
         try:
             self.client.connect(self.broker, self.port, 60)
-            self.client.loop_forever()
+            
+            # Use loop_start() instead of loop_forever() for better control
+            self.client.loop_start()
+            
+            # Wait until stop event is set
+            while not self._stop_event.is_set():
+                time.sleep(0.1)
+            
+            # Clean shutdown
+            self.client.loop_stop()
+            
         except Exception as e:
             print(f"✗ MQTT loop error: {e}")
+        finally:
             self.running = False
             self.connected = False
     
     def stop(self):
-        """Stop MQTT client"""
-        if self.client and self.running:
-            self.running = False
-            self.client.disconnect()
-            print("✓ MQTT service stopped")
+        """Stop MQTT client completely"""
+        print("🛑 Stopping MQTT service...")
+        
+        # Signal the thread to stop
+        self._stop_event.set()
+        self.running = False
+        
+        if self.client:
+            try:
+                # Unsubscribe from all topics first
+                self.client.unsubscribe(self.TOPIC_PIR)
+                self.client.unsubscribe(self.TOPIC_ADC)
+                self.client.unsubscribe(self.TOPIC_LEFT_IND)
+                self.client.unsubscribe(self.TOPIC_RIGHT_IND)
+            except:
+                pass
+            
+            try:
+                # Disconnect client
+                self.client.disconnect()
+            except:
+                pass
+            
+            try:
+                # Stop the loop if it's running
+                self.client.loop_stop()
+            except:
+                pass
+        
+        # Reset state to defaults when stopped
+        self.state = {
+            'speed': 0,
+            'pir_alert': 0,
+            'left_indicator': 0,
+            'right_indicator': 0
+        }
+        
+        self.connected = False
+        self.client = None
+        
+        # Wait for thread to finish
+        if self.thread and self.thread.is_alive():
+            self.thread.join(timeout=2.0)
+        self.thread = None
+        
+        print("✓ MQTT service stopped and state reset")
     
     def get_state(self):
         """Get current MQTT state"""
@@ -134,15 +194,25 @@ class MQTTService:
     
     def is_connected(self):
         """Check if MQTT client is connected"""
-        return self.connected
+        return self.connected and self.running
 
 
 # Global MQTT service instance
 _mqtt_service = None
+_mqtt_lock = threading.Lock()
 
 def get_mqtt_service(broker="10.42.0.1", port=1883, socketio=None):
     """Get or create global MQTT service instance"""
     global _mqtt_service
-    if _mqtt_service is None:
-        _mqtt_service = MQTTService(broker, port, socketio)
+    with _mqtt_lock:
+        if _mqtt_service is None:
+            _mqtt_service = MQTTService(broker, port, socketio)
     return _mqtt_service
+
+def reset_mqtt_service():
+    """Reset the global MQTT service instance (for clean restart)"""
+    global _mqtt_service
+    with _mqtt_lock:
+        if _mqtt_service is not None:
+            _mqtt_service.stop()
+            _mqtt_service = None

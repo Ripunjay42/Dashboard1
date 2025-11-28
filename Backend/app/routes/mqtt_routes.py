@@ -1,5 +1,5 @@
 from flask import Blueprint, jsonify, request
-from app.services.mqtt_service import get_mqtt_service
+from app.services.mqtt_service import get_mqtt_service, reset_mqtt_service
 
 mqtt_bp = Blueprint('mqtt', __name__)
 
@@ -42,13 +42,16 @@ def start_mqtt():
 
 @mqtt_bp.route('/stop', methods=['POST'])
 def stop_mqtt():
-    """Stop MQTT service"""
+    """Stop MQTT service completely and reset state"""
     try:
         mqtt_service = get_mqtt_service()
         mqtt_service.stop()
+        
+        # Return the reset state (all zeros)
         return jsonify({
             'status': 'success',
-            'message': 'MQTT service stopped'
+            'message': 'MQTT service stopped',
+            'data': mqtt_service.get_state()
         })
     except Exception as e:
         return jsonify({

@@ -588,14 +588,31 @@ class VideoStreamManager:
     
     def _video_stream_loop(self):
         """
-        THREAD 1: FAST Video Streaming
+        THREAD 1: FAST Video Streaming with LAG PREVENTION
         Applies latest detection overlay and streams at 15 FPS (Jetson optimized)
         """
         frame_counter = 0
+        last_buffer_flush = time.time()
+        last_gc = time.time()
         
         while self.is_running:
             if not self.cap or not self.cap.isOpened():
                 break
+            
+            # CRITICAL FOR JETSON: Periodically flush camera buffer to prevent lag accumulation
+            current_time = time.time()
+            if current_time - last_buffer_flush > 5.0:  # Every 5 seconds
+                # Flush buffer by reading and discarding multiple frames
+                for _ in range(3):
+                    self.cap.grab()
+                last_buffer_flush = current_time
+            
+            # Periodic garbage collection to prevent memory buildup
+            if current_time - last_gc > 30.0:  # Every 30 seconds
+                gc.collect()
+                if hasattr(self.detector, 'device') and self.detector.device == 'cuda':
+                    torch.cuda.empty_cache()
+                last_gc = current_time
             
             ret, frame = self.cap.read()
             if not ret:

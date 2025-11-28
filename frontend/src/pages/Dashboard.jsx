@@ -52,10 +52,8 @@ const Dashboard = ({ onSelectUseCase }) => {
     return () => clearInterval(updateInterval);
   }, [speed]);
 
-  // Start MQTT service only when useMqtt is enabled
+  // Start/Stop MQTT service based on toggle
   useEffect(() => {
-    if (!useMqtt) return; // Don't start MQTT if toggle is off
-
     const startMqtt = async () => {
       try {
         const response = await fetch('http://localhost:5000/api/mqtt/start', {
@@ -74,10 +72,35 @@ const Dashboard = ({ onSelectUseCase }) => {
       }
     };
 
-    startMqtt();
+    const stopMqtt = async () => {
+      try {
+        const response = await fetch('http://localhost:5000/api/mqtt/stop', {
+          method: 'POST'
+        });
+        const data = await response.json();
+        if (data.status === 'success') {
+          console.log('✓ MQTT service stopped');
+          // Reset all MQTT-controlled values to defaults
+          setMqttConnected(false);
+          setSpeed(0);
+          setLeftTurnActive(false);
+          setRightTurnActive(false);
+          setPirAlert(0);
+        }
+      } catch (error) {
+        console.error('✗ Failed to stop MQTT service:', error);
+      }
+    };
+
+    if (useMqtt) {
+      startMqtt();
+    } else {
+      // Explicitly stop MQTT and reset state when toggle is OFF
+      stopMqtt();
+    }
 
     return () => {
-      // Stop MQTT when toggle is turned off
+      // Cleanup: Stop MQTT when component unmounts
       if (useMqtt) {
         fetch('http://localhost:5000/api/mqtt/stop', { method: 'POST' }).catch(console.error);
       }
