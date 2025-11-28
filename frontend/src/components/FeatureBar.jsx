@@ -62,9 +62,9 @@ const FeatureBar = ({ activeFeature, onFeatureClick }) => {
 
   // Main view with home button + all features
   return (
-    <div className="relative w-full max-w-[750px] mx-auto">
+    <div className="relative w-full max-w-[800px] mx-auto">
       {/* Main Feature Bar */}
-      <div className="bg-gray-900/90 backdrop-blur-sm border-2 border-gray-700 rounded-3xl px-2 sm:px-2 py-2 sm:py-3 shadow-xl">
+      <div className="bg-gray-900/90 backdrop-blur-sm border-2 border-gray-700 rounded-3xl px-1 sm:px-1 py-2 sm:py-3 shadow-xl">
         <div className="flex flex-wrap items-center justify-center gap-1 sm:gap-1">
           {/* Home Button */}
           <button
