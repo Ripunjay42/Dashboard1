@@ -4,19 +4,33 @@ import carImage from '../assets/car_3d.png';
 
 const Car3DView = ({ pirAlert = 0 }) => {
   return (
-    <div className="h-full w-full flex items-center justify-center relative bg-gray-900 overflow-hidden">
+    <div 
+      className="h-full w-full flex items-center justify-center relative bg-gray-900 overflow-hidden"
+      style={{
+        transform: 'translateZ(0)',
+        WebkitTransform: 'translateZ(0)',
+        willChange: 'transform'
+      }}
+    >
       {/* 3D Road Background with Extended Perspective */}
       <div className="absolute inset-0 flex items-center justify-center" style={{
         perspective: '3500px',
-        perspectiveOrigin: 'center center'
+        WebkitPerspective: '3500px',
+        perspectiveOrigin: 'center center',
+        WebkitPerspectiveOrigin: 'center center'
       }}>
         {/* Extended Road Surface with 3D Transform */}
         <div 
           className="relative w-full h-[1200%] bg-gray-900"
           style={{
             transform: 'rotateX(78deg) translateZ(-500px) translateY(-50%)',
+            WebkitTransform: 'rotateX(78deg) translateZ(-500px) translateY(-50%)',
             transformOrigin: 'center center',
-            transformStyle: 'preserve-3d'
+            WebkitTransformOrigin: 'center center',
+            transformStyle: 'preserve-3d',
+            WebkitTransformStyle: 'preserve-3d',
+            backfaceVisibility: 'hidden',
+            WebkitBackfaceVisibility: 'hidden'
           }}
         >
           {/* Road Grid Pattern for 3D Effect */}
@@ -82,7 +96,10 @@ const Car3DView = ({ pirAlert = 0 }) => {
       </div>
 
       {/* Subtle Grid Background */}
-      <div className="absolute inset-0 opacity-3">
+      <div className="absolute inset-0 opacity-3" style={{
+        transform: 'translateZ(0)',
+        WebkitTransform: 'translateZ(0)'
+      }}>
         <div className="h-full w-full" style={{
           backgroundImage: `
             linear-gradient(rgba(128, 128, 128, 0.2) 1px, transparent 1px),
@@ -99,13 +116,21 @@ const Car3DView = ({ pirAlert = 0 }) => {
           className="relative"
           style={{
             transform: 'perspective(1000px) rotateX(-2deg) translateZ(10px)',
-            transformOrigin: 'center center'
+            WebkitTransform: 'perspective(1000px) rotateX(-2deg) translateZ(10px)',
+            transformOrigin: 'center center',
+            WebkitTransformOrigin: 'center center',
+            transformStyle: 'preserve-3d',
+            WebkitTransformStyle: 'preserve-3d'
           }}
         >
           <img 
             src={carImage} 
             alt="Vehicle View" 
             className="w-auto h-24 sm:h-28 lg:h-[115px] object-contain relative z-10"
+            style={{
+              transform: 'translateZ(0)',
+              WebkitTransform: 'translateZ(0)'
+            }}
           />
         </div>
       </div>
