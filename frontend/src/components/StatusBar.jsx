@@ -31,7 +31,7 @@ const StatusBar = ({ time, mqttConnected = false, useMqtt = false, onToggleMqtt,
         <div 
           className="relative inline-flex items-center cursor-pointer"
           onClick={onToggleMqtt}
-          title={useMqtt ? "MQTT Mode (Click for Keyboard)" : "Keyboard Mode (Click for MQTT)"}
+          // title={useMqtt ? "MQTT Mode (Click for Keyboard)" : "Keyboard Mode (Click for MQTT)"}
         >
           <div className={`w-12 h-6 rounded-full transition-colors duration-300 ${
             useMqtt ? (mqttConnected ? 'bg-transparent' : 'bg-transparent') : 'bg-transparent'
