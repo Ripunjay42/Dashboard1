@@ -589,9 +589,18 @@ class VideoStreamManager:
     def _video_stream_loop(self):
         """
         THREAD 1: FAST Video Streaming
-        OPTIMIZED FOR JETSON - Reduced resolution and faster encoding
+        ULTRA OPTIMIZED FOR JETSON - Minimal processing for maximum FPS
         """
         frame_counter = 0
+        
+        # Pre-calculate encode params based on platform
+        is_jetson = hasattr(self.detector, 'is_jetson') and self.detector.is_jetson
+        if is_jetson:
+            output_size = (320, 240)  # Smaller for Jetson
+            encode_params = [cv2.IMWRITE_JPEG_QUALITY, 45]  # Lower quality = faster
+        else:
+            output_size = (640, 480)
+            encode_params = [cv2.IMWRITE_JPEG_QUALITY, self.jpeg_quality, cv2.IMWRITE_JPEG_OPTIMIZE, 1]
         
         while self.is_running:
             if not self.cap or not self.cap.isOpened():
@@ -604,9 +613,6 @@ class VideoStreamManager:
             
             frame_counter += 1
             
-            # NO FRAME SKIPPING - Process all frames to avoid buffer buildup
-            # The key to low latency is processing frames as fast as they come
-            
             # Save raw frame for AI thread + get latest mask (single lock)
             with self.lock:
                 if self.latest_frame is not None:
@@ -614,29 +620,22 @@ class VideoStreamManager:
                 self.latest_frame = frame.copy()
                 current_mask = self.current_mask
             
-            # Apply overlay immediately if we have detection
+            # Apply overlay if we have detection (skip complex overlay on Jetson)
             if current_mask is not None:
-                color_mask = np.zeros_like(frame)
-                color_mask[current_mask > 0] = [0, 0, 255]  # Red
-                overlay_frame = cv2.addWeighted(frame, 0.7, color_mask, 0.3, 0)
+                if is_jetson:
+                    # Simplified overlay for Jetson - just draw red on detected areas
+                    frame[current_mask > 0] = [0, 0, 255]
+                    overlay_frame = frame
+                else:
+                    color_mask = np.zeros_like(frame)
+                    color_mask[current_mask > 0] = [0, 0, 255]
+                    overlay_frame = cv2.addWeighted(frame, 0.7, color_mask, 0.3, 0)
             else:
                 overlay_frame = frame
             
-            # JETSON OPTIMIZED: Smaller output for faster streaming
-            if hasattr(self.detector, 'is_jetson') and self.detector.is_jetson:
-                # Smaller resolution for Jetson - reduces encoding time significantly
-                overlay_frame = cv2.resize(overlay_frame, (400, 300), interpolation=cv2.INTER_AREA)
-                encode_quality = 50  # Lower quality for speed
-            else:
-                overlay_frame = cv2.resize(overlay_frame, (640, 480), interpolation=cv2.INTER_AREA)
-                encode_quality = self.jpeg_quality
-            
-            # Fast JPEG encoding with optimization flag
-            encode_param = [
-                int(cv2.IMWRITE_JPEG_QUALITY), encode_quality,
-                int(cv2.IMWRITE_JPEG_OPTIMIZE), 1  # Enable fast encoding
-            ]
-            ret_enc, buffer = cv2.imencode('.jpg', overlay_frame, encode_param)
+            # Fast resize and encode
+            overlay_frame = cv2.resize(overlay_frame, output_size, interpolation=cv2.INTER_NEAREST)
+            ret_enc, buffer = cv2.imencode('.jpg', overlay_frame, encode_params)
             
             del overlay_frame
             
@@ -648,33 +647,32 @@ class VideoStreamManager:
                 del buffer
             
             del frame
-            
-            # Small sleep to prevent CPU spinning on Jetson
-            if hasattr(self.detector, 'is_jetson') and self.detector.is_jetson:
-                time.sleep(0.001)
     
     def _ai_inference_loop(self):
         """
         THREAD 2: AI Inference
-        OPTIMIZED FOR JETSON - Frame skipping and memory management
+        ULTRA OPTIMIZED FOR JETSON - Aggressive frame skipping and smaller input
         """
         frame_counter = 0
         last_gc = time.time()
         
-        # Jetson: Skip more frames to reduce load
-        frame_skip = 2 if (hasattr(self.detector, 'is_jetson') and self.detector.is_jetson) else 1
+        # Jetson: Skip more frames to reduce load (every 4th = ~7.5 FPS AI)
+        # Windows: Process every frame for better detection
+        is_jetson = hasattr(self.detector, 'is_jetson') and self.detector.is_jetson
+        frame_skip = 4 if is_jetson else 1
+        ai_input_size = (160, 120) if is_jetson else (320, 240)
         
         while self.is_running:
             frame_counter += 1
             
-            # Frame skipping for Jetson
+            # Frame skipping
             if frame_counter % frame_skip != 0:
                 time.sleep(0.01)
                 continue
             
             # Periodic garbage collection for Jetson
             current_time = time.time()
-            if current_time - last_gc > 30:  # Every 30 seconds
+            if current_time - last_gc > 20:  # Every 20 seconds
                 gc.collect()
                 if hasattr(self.detector, 'device') and self.detector.device == 'cuda':
                     torch.cuda.empty_cache()
@@ -686,16 +684,8 @@ class VideoStreamManager:
                     time.sleep(0.005)
                     continue
                 
-                # Adaptive resize based on device (CUDA vs CPU)
-                if hasattr(self.detector, 'device') and self.detector.device == 'cuda':
-                    # CUDA MODE: Smaller for Jetson memory efficiency
-                    if hasattr(self.detector, 'is_jetson') and self.detector.is_jetson:
-                        frame_small = cv2.resize(self.latest_frame, (256, 192), interpolation=cv2.INTER_LINEAR)
-                    else:
-                        frame_small = cv2.resize(self.latest_frame, (320, 240), interpolation=cv2.INTER_LINEAR)
-                else:
-                    # CPU MODE: Keep small for speed
-                    frame_small = cv2.resize(self.latest_frame, (160, 120), interpolation=cv2.INTER_LINEAR)
+                frame_small = cv2.resize(self.latest_frame, ai_input_size, 
+                                        interpolation=cv2.INTER_NEAREST)
                 
                 # CRITICAL: Store original dimensions inside lock to prevent race condition
                 original_h, original_w = self.latest_frame.shape[:2]

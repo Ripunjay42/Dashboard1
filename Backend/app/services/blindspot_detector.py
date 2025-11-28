@@ -703,8 +703,18 @@ class DualCameraManager:
         return True
     
     def _left_video_loop(self):
-        """Left camera video thread - OPTIMIZED FOR JETSON"""
+        """Left camera video thread - ULTRA OPTIMIZED FOR JETSON"""
         frame_counter = 0
+        
+        # Pre-calculate encode params based on platform (avoid repeated checks)
+        if self.is_jetson:
+            encode_size = (320, 180)   # SMALLER for Jetson - faster encoding
+            encode_quality = 45        # Lower quality = faster encoding + less bandwidth
+            encode_params = [cv2.IMWRITE_JPEG_QUALITY, encode_quality]
+        else:
+            encode_size = (400, 225)
+            encode_quality = 60
+            encode_params = [cv2.IMWRITE_JPEG_QUALITY, encode_quality, cv2.IMWRITE_JPEG_OPTIMIZE, 1]
         
         while self.running:
             if not self.left_cap or not self.left_cap.isOpened():
@@ -719,9 +729,6 @@ class DualCameraManager:
             
             frame_counter += 1
             
-            # NO FRAME SKIPPING - Process all frames to avoid buffer buildup
-            # CAP_PROP_BUFFERSIZE=1 ensures we get latest frame with minimal lag
-            
             # Prevent counter overflow
             if frame_counter > 1000000:
                 frame_counter = 0
@@ -733,22 +740,14 @@ class DualCameraManager:
                 self.left_latest_frame = frame.copy()
                 danger = self.left_danger
             
-            # Draw grid overlay
-            color = (0, 0, 255) if danger else (0, 255, 0)
-            self.detector.draw_side_mirror_grid(frame, color, is_left=True)
+            # Draw simple grid overlay (skip on Jetson for speed)
+            if not self.is_jetson:
+                color = (0, 0, 255) if danger else (0, 255, 0)
+                self.detector.draw_side_mirror_grid(frame, color, is_left=True)
             
-            # Optimized Jetson encoding - good balance of size/quality
-            if self.is_jetson:
-                encode_size = (400, 225)   # Reasonable size
-                encode_quality = 60        # Good quality
-            else:
-                encode_size = (400, 225)
-                encode_quality = 60
-            
-            frame_resized = cv2.resize(frame, encode_size, interpolation=cv2.INTER_AREA)
-            ret_encode, buffer = cv2.imencode('.jpg', frame_resized, 
-                                              [cv2.IMWRITE_JPEG_QUALITY, encode_quality,
-                                               cv2.IMWRITE_JPEG_OPTIMIZE, 1])  # Fast encoding
+            # Fast resize and encode
+            frame_resized = cv2.resize(frame, encode_size, interpolation=cv2.INTER_NEAREST)
+            ret_encode, buffer = cv2.imencode('.jpg', frame_resized, encode_params)
             
             del frame_resized
             
@@ -760,13 +759,20 @@ class DualCameraManager:
                 del buffer
             
             del frame
-            
-            # Small sleep to prevent CPU spinning (Jetson optimization)
-            time.sleep(0.001)
     
     def _right_video_loop(self):
-        """Right camera video thread - OPTIMIZED FOR JETSON"""
+        """Right camera video thread - ULTRA OPTIMIZED FOR JETSON"""
         frame_counter = 0
+        
+        # Pre-calculate encode params based on platform (avoid repeated checks)
+        if self.is_jetson:
+            encode_size = (320, 180)   # SMALLER for Jetson - faster encoding
+            encode_quality = 45        # Lower quality = faster encoding + less bandwidth
+            encode_params = [cv2.IMWRITE_JPEG_QUALITY, encode_quality]
+        else:
+            encode_size = (400, 225)
+            encode_quality = 60
+            encode_params = [cv2.IMWRITE_JPEG_QUALITY, encode_quality, cv2.IMWRITE_JPEG_OPTIMIZE, 1]
         
         while self.running:
             if not self.right_cap or not self.right_cap.isOpened():
@@ -781,9 +787,6 @@ class DualCameraManager:
             
             frame_counter += 1
             
-            # NO FRAME SKIPPING - Process all frames to avoid buffer buildup
-            # CAP_PROP_BUFFERSIZE=1 ensures we get latest frame with minimal lag
-            
             # Prevent counter overflow
             if frame_counter > 1000000:
                 frame_counter = 0
@@ -795,22 +798,14 @@ class DualCameraManager:
                 self.right_latest_frame = frame.copy()
                 danger = self.right_danger
             
-            # Draw grid overlay
-            color = (0, 0, 255) if danger else (0, 255, 0)
-            self.detector.draw_side_mirror_grid(frame, color, is_left=False)
+            # Draw simple grid overlay (skip on Jetson for speed)
+            if not self.is_jetson:
+                color = (0, 0, 255) if danger else (0, 255, 0)
+                self.detector.draw_side_mirror_grid(frame, color, is_left=False)
             
-            # Optimized Jetson encoding - good balance of size/quality
-            if self.is_jetson:
-                encode_size = (400, 225)   # Reasonable size
-                encode_quality = 60        # Good quality
-            else:
-                encode_size = (400, 225)
-                encode_quality = 60
-            
-            frame_resized = cv2.resize(frame, encode_size, interpolation=cv2.INTER_AREA)
-            ret_encode, buffer = cv2.imencode('.jpg', frame_resized, 
-                                              [cv2.IMWRITE_JPEG_QUALITY, encode_quality,
-                                               cv2.IMWRITE_JPEG_OPTIMIZE, 1])  # Fast encoding
+            # Fast resize and encode
+            frame_resized = cv2.resize(frame, encode_size, interpolation=cv2.INTER_NEAREST)
+            ret_encode, buffer = cv2.imencode('.jpg', frame_resized, encode_params)
             
             del frame_resized
             
@@ -822,31 +817,31 @@ class DualCameraManager:
                 del buffer
             
             del frame
-            
-            # Small sleep to prevent CPU spinning (Jetson optimization)
-            time.sleep(0.001)
     
     def _left_ai_loop(self):
-        """Left AI thread - MEMORY LEAK PREVENTION & CPU OPTIMIZED"""
+        """Left AI thread - ULTRA OPTIMIZED FOR JETSON"""
         frame_counter = 0
         last_gc = time.time()
         
+        # Jetson: skip more frames for better performance (process every 5th = 6 FPS AI)
+        # Windows: process every 3rd frame = 10 FPS AI
+        frame_skip = 5 if self.is_jetson else 3
+        ai_input_size = (256, 144) if self.is_jetson else (YOLO_INPUT_W, YOLO_INPUT_H)
+        
         while self.running:
-            # Frame skipping for Windows CPU (process every 3rd frame = 10 FPS AI)
             frame_counter += 1
-            if frame_counter % 3 != 0:
-                time.sleep(0.02)  # Small delay when skipping
+            if frame_counter % frame_skip != 0:
+                time.sleep(0.02)
                 continue
             
-            # Periodic garbage collection to prevent memory accumulation
+            # Periodic garbage collection
             current_time = time.time()
-            if current_time - last_gc > 60:  # Every 60 seconds
-                import gc
+            if current_time - last_gc > 30:  # Every 30 seconds on Jetson
                 gc.collect()
+                if self.is_jetson and torch.cuda.is_available():
+                    torch.cuda.empty_cache()
                 last_gc = current_time
-                print("🗑️ Left AI: Garbage collection performed")
             
-            # Prevent frame counter overflow
             if frame_counter > 1000000:
                 frame_counter = 0
             
@@ -855,51 +850,47 @@ class DualCameraManager:
                 if self.left_latest_frame is None:
                     time.sleep(0.01)
                     continue
-                # Process smaller frame for maximum speed (320x180 for CPU)
-                frame_small = cv2.resize(self.left_latest_frame, (YOLO_INPUT_W, YOLO_INPUT_H), 
-                                       interpolation=cv2.INTER_LINEAR)
+                frame_small = cv2.resize(self.left_latest_frame, ai_input_size, 
+                                       interpolation=cv2.INTER_NEAREST)
             
             try:
-                # Run AI detection (ultra fast on small frame)
                 danger, detected_vehicles = self.detector.process_frame_fast(frame_small, is_left=True)
-                
-                # Explicitly delete variables to free memory
                 del detected_vehicles
                 del frame_small
                 
-                # Update danger status
                 with self.left_lock:
                     self.left_danger = danger
                     
             except Exception as e:
-                # Graceful error handling with memory cleanup
                 print(f"Left AI error: {e}")
-                # Clean up any partial variables
                 if 'frame_small' in locals():
                     del frame_small
                 time.sleep(0.1)
     
     def _right_ai_loop(self):
-        """Right AI thread - MEMORY LEAK PREVENTION & CPU OPTIMIZED"""
+        """Right AI thread - ULTRA OPTIMIZED FOR JETSON"""
         frame_counter = 0
         last_gc = time.time()
         
+        # Jetson: skip more frames for better performance (process every 5th = 6 FPS AI)
+        # Windows: process every 3rd frame = 10 FPS AI
+        frame_skip = 5 if self.is_jetson else 3
+        ai_input_size = (256, 144) if self.is_jetson else (YOLO_INPUT_W, YOLO_INPUT_H)
+        
         while self.running:
-            # Frame skipping for Windows CPU (process every 3rd frame = 10 FPS AI)
             frame_counter += 1
-            if frame_counter % 3 != 0:
-                time.sleep(0.02)  # Small delay when skipping
+            if frame_counter % frame_skip != 0:
+                time.sleep(0.02)
                 continue
             
-            # Periodic garbage collection to prevent memory accumulation
+            # Periodic garbage collection
             current_time = time.time()
-            if current_time - last_gc > 60:  # Every 60 seconds
-                import gc
+            if current_time - last_gc > 30:  # Every 30 seconds on Jetson
                 gc.collect()
+                if self.is_jetson and torch.cuda.is_available():
+                    torch.cuda.empty_cache()
                 last_gc = current_time
-                print("Right AI: Garbage collection performed")
             
-            # Prevent frame counter overflow
             if frame_counter > 1000000:
                 frame_counter = 0
             
@@ -908,26 +899,19 @@ class DualCameraManager:
                 if self.right_latest_frame is None:
                     time.sleep(0.01)
                     continue
-                # Process smaller frame for maximum speed (320x180 for CPU)
-                frame_small = cv2.resize(self.right_latest_frame, (YOLO_INPUT_W, YOLO_INPUT_H), 
-                                       interpolation=cv2.INTER_LINEAR)
+                frame_small = cv2.resize(self.right_latest_frame, ai_input_size, 
+                                       interpolation=cv2.INTER_NEAREST)
             
             try:
-                # Run AI detection (ultra fast on small frame)
                 danger, detected_vehicles = self.detector.process_frame_fast(frame_small, is_left=False)
-                
-                # Explicitly delete variables to free memory
                 del detected_vehicles
                 del frame_small
                 
-                # Update danger status
                 with self.right_lock:
                     self.right_danger = danger
                     
             except Exception as e:
-                # Graceful error handling with memory cleanup
                 print(f"Right AI error: {e}")
-                # Clean up any partial variables
                 if 'frame_small' in locals():
                     del frame_small
                 time.sleep(0.1)
@@ -951,6 +935,14 @@ class DualCameraManager:
         """Check if right blind spot has danger"""
         with self.right_lock:
             return bool(self.right_danger)
+    
+    def get_danger_status(self):
+        """Get danger status for both sides"""
+        with self.left_lock:
+            left = bool(self.left_danger)
+        with self.right_lock:
+            right = bool(self.right_danger)
+        return left, right
     
     def stop(self):
         """Stop dual camera blind spot detection (4 threads)"""

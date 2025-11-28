@@ -102,8 +102,8 @@ const PotholeDetector = ({ onBack }) => {
         <div className="w-16"></div> {/* Spacer for centering */}
       </div>
 
-      {/* Video Feed Container */}
-      <div className="flex-1 flex items-center justify-center bg-black rounded-lg overflow-hidden relative">
+      {/* Video Feed Container - Full Width */}
+      <div className="flex-1 flex items-center justify-center bg-black rounded-lg overflow-hidden relative mx-0">
         {loading && (
           <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/80 z-10">
             <div className="animate-spin rounded-full h-12 w-12 border-4 border-cyan-500 border-t-transparent mb-4"></div>
@@ -113,7 +113,7 @@ const PotholeDetector = ({ onBack }) => {
 
         {error && (
           <div className="flex flex-col items-center justify-center text-center p-8">
-            <div className="text-red-500 text-4xl mb-4"></div>
+            <div className="text-red-500 text-4xl mb-4">⚠️</div>
             <p className="text-white text-lg mb-2">Error</p>
             <p className="text-gray-400 text-sm">{error}</p>
             <button
@@ -130,7 +130,7 @@ const PotholeDetector = ({ onBack }) => {
             <img
               src={`${API_URL}/video_feed`}
               alt="Pothole Detection Feed"
-              className="max-w-full max-h-full object-contain"
+              className="w-full h-full object-cover"
               style={{ display: 'block' }}
             />
             
