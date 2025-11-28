@@ -1,5 +1,44 @@
 @import "tailwindcss";
 
+/* WebKitGTK (Epiphany) 3D Transform Compatibility */
+/* Force GPU acceleration for 3D transforms */
+.gpu-accelerated {
+  -webkit-transform: translateZ(0);
+  -moz-transform: translateZ(0);
+  transform: translateZ(0);
+  -webkit-backface-visibility: hidden;
+  -moz-backface-visibility: hidden;
+  backface-visibility: hidden;
+}
+
+/* Fallback for browsers that don't support preserve-3d */
+@supports not (transform-style: preserve-3d) {
+  .car-3d-fallback {
+    transform: none !important;
+    -webkit-transform: none !important;
+    -moz-transform: none !important;
+  }
+}
+
+/* WebKitGTK specific 3D perspective fix */
+.perspective-parent {
+  -webkit-perspective: 3500px;
+  -moz-perspective: 3500px;
+  perspective: 3500px;
+  -webkit-perspective-origin: center center;
+  -moz-perspective-origin: center center;
+  perspective-origin: center center;
+}
+
+.transform-3d-child {
+  -webkit-transform-style: preserve-3d;
+  -moz-transform-style: preserve-3d;
+  transform-style: preserve-3d;
+  -webkit-backface-visibility: hidden;
+  -moz-backface-visibility: hidden;
+  backface-visibility: hidden;
+}
+
 /* Custom Animations */
 @keyframes slideDown {
   from {

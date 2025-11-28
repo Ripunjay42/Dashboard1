@@ -3,6 +3,54 @@ import { MdWarning } from 'react-icons/md';
 import carImage from '../assets/car_3d.png';
 
 const Car3DView = ({ pirAlert = 0 }) => {
+  // CSS styles for WebKitGTK (Epiphany) compatibility
+  const perspectiveContainerStyle = {
+    perspective: '3500px',
+    WebkitPerspective: '3500px',
+    MozPerspective: '3500px',
+    perspectiveOrigin: 'center center',
+    WebkitPerspectiveOrigin: 'center center',
+    MozPerspectiveOrigin: 'center center',
+    // Force GPU acceleration for WebKitGTK
+    transform: 'translateZ(0)',
+    WebkitTransform: 'translateZ(0)'
+  };
+
+  const roadSurfaceStyle = {
+    transform: 'rotateX(78deg) translateZ(-500px) translateY(-50%)',
+    WebkitTransform: 'rotateX(78deg) translateZ(-500px) translateY(-50%)',
+    MozTransform: 'rotateX(78deg) translateZ(-500px) translateY(-50%)',
+    transformOrigin: 'center center',
+    WebkitTransformOrigin: 'center center',
+    MozTransformOrigin: 'center center',
+    transformStyle: 'preserve-3d',
+    WebkitTransformStyle: 'preserve-3d',
+    MozTransformStyle: 'preserve-3d',
+    backfaceVisibility: 'hidden',
+    WebkitBackfaceVisibility: 'hidden',
+    MozBackfaceVisibility: 'hidden'
+  };
+
+  const carContainerStyle = {
+    perspective: '1000px',
+    WebkitPerspective: '1000px',
+    MozPerspective: '1000px',
+    transform: 'translateZ(0)',
+    WebkitTransform: 'translateZ(0)'
+  };
+
+  const carImageWrapperStyle = {
+    transform: 'rotateX(-2deg) translateZ(10px)',
+    WebkitTransform: 'rotateX(-2deg) translateZ(10px)',
+    MozTransform: 'rotateX(-2deg) translateZ(10px)',
+    transformOrigin: 'center center',
+    WebkitTransformOrigin: 'center center',
+    MozTransformOrigin: 'center center',
+    transformStyle: 'preserve-3d',
+    WebkitTransformStyle: 'preserve-3d',
+    MozTransformStyle: 'preserve-3d'
+  };
+
   return (
     <div 
       className="h-full w-full flex items-center justify-center relative bg-gray-900 overflow-hidden"
@@ -12,26 +60,15 @@ const Car3DView = ({ pirAlert = 0 }) => {
         willChange: 'transform'
       }}
     >
-      {/* 3D Road Background with Extended Perspective */}
-      <div className="absolute inset-0 flex items-center justify-center" style={{
-        perspective: '3500px',
-        WebkitPerspective: '3500px',
-        perspectiveOrigin: 'center center',
-        WebkitPerspectiveOrigin: 'center center'
-      }}>
+      {/* 3D Road Background - Perspective on parent, transform on child */}
+      <div 
+        className="absolute inset-0 flex items-center justify-center"
+        style={perspectiveContainerStyle}
+      >
         {/* Extended Road Surface with 3D Transform */}
         <div 
           className="relative w-full h-[1200%] bg-gray-900"
-          style={{
-            transform: 'rotateX(78deg) translateZ(-500px) translateY(-50%)',
-            WebkitTransform: 'rotateX(78deg) translateZ(-500px) translateY(-50%)',
-            transformOrigin: 'center center',
-            WebkitTransformOrigin: 'center center',
-            transformStyle: 'preserve-3d',
-            WebkitTransformStyle: 'preserve-3d',
-            backfaceVisibility: 'hidden',
-            WebkitBackfaceVisibility: 'hidden'
-          }}
+          style={roadSurfaceStyle}
         >
           {/* Road Grid Pattern for 3D Effect */}
           <div className="absolute inset-0 opacity-5" style={{
@@ -109,19 +146,15 @@ const Car3DView = ({ pirAlert = 0 }) => {
         }}></div>
       </div>
 
-      {/* Car Container with Clean 3D Positioning */}
-      <div className="relative z-10 flex items-center justify-center h-full pt-16">
-        {/* Car Image with Clean 3D Positioning */}
+      {/* Car Container - Perspective on parent, transform on child for WebKitGTK */}
+      <div 
+        className="relative z-10 flex items-center justify-center h-full pt-16"
+        style={carContainerStyle}
+      >
+        {/* Car Image with 3D Positioning */}
         <div 
           className="relative"
-          style={{
-            transform: 'perspective(1000px) rotateX(-2deg) translateZ(10px)',
-            WebkitTransform: 'perspective(1000px) rotateX(-2deg) translateZ(10px)',
-            transformOrigin: 'center center',
-            WebkitTransformOrigin: 'center center',
-            transformStyle: 'preserve-3d',
-            WebkitTransformStyle: 'preserve-3d'
-          }}
+          style={carImageWrapperStyle}
         >
           <img 
             src={carImage} 
