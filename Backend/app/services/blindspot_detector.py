@@ -703,38 +703,29 @@ class DualCameraManager:
         return True
     
     def _left_video_loop(self):
-        """Left camera video thread - AGGRESSIVE LAG PREVENTION FOR JETSON"""
+        """Left camera video thread - SMOOTH LAG-FREE FOR JETSON"""
         frame_counter = 0
-        last_buffer_flush = time.time()
         
         while self.running:
             if not self.left_cap or not self.left_cap.isOpened():
                 time.sleep(0.01)
                 continue
             
-            # AGGRESSIVE BUFFER FLUSHING: Every 1 second to prevent ANY lag accumulation
-            current_time = time.time()
-            if current_time - last_buffer_flush > 1.0:  # Every 1 second (was 5)
-                # Flush buffer aggressively - discard ALL buffered frames
-                for _ in range(10):  # Flush up to 10 frames (was 3)
-                    self.left_cap.grab()
-                last_buffer_flush = current_time
+            # SMOOTH APPROACH: Always grab twice - first discards buffered, second is fresh
+            # This prevents lag WITHOUT causing stutter
+            self.left_cap.grab()  # Discard potentially stale frame
             
-            # ALWAYS grab first to ensure we get the NEWEST frame (not buffered old one)
+            # Now grab and retrieve the fresh frame
             if not self.left_cap.grab():
                 time.sleep(0.001)
                 continue
             
-            # Retrieve the grabbed frame
             ret, frame = self.left_cap.retrieve()
             if not ret or frame is None:
                 time.sleep(0.001)
                 continue
             
             frame_counter += 1
-            
-            # NO FRAME SKIPPING - Process all frames to avoid buffer buildup
-            # CAP_PROP_BUFFERSIZE=1 ensures we get latest frame with minimal lag
             
             # Prevent counter overflow
             if frame_counter > 1000000:
@@ -774,43 +765,31 @@ class DualCameraManager:
                 del buffer
             
             del frame
-            
-            # Small sleep to prevent CPU spinning (Jetson optimization)
-            time.sleep(0.001)
     
     def _right_video_loop(self):
-        """Right camera video thread - AGGRESSIVE LAG PREVENTION FOR JETSON"""
+        """Right camera video thread - SMOOTH LAG-FREE FOR JETSON"""
         frame_counter = 0
-        last_buffer_flush = time.time()
         
         while self.running:
             if not self.right_cap or not self.right_cap.isOpened():
                 time.sleep(0.01)
                 continue
             
-            # AGGRESSIVE BUFFER FLUSHING: Every 1 second to prevent ANY lag accumulation
-            current_time = time.time()
-            if current_time - last_buffer_flush > 1.0:  # Every 1 second (was 5)
-                # Flush buffer aggressively - discard ALL buffered frames
-                for _ in range(10):  # Flush up to 10 frames (was 3)
-                    self.right_cap.grab()
-                last_buffer_flush = current_time
+            # SMOOTH APPROACH: Always grab twice - first discards buffered, second is fresh
+            # This prevents lag WITHOUT causing stutter
+            self.right_cap.grab()  # Discard potentially stale frame
             
-            # ALWAYS grab first to ensure we get the NEWEST frame (not buffered old one)
+            # Now grab and retrieve the fresh frame
             if not self.right_cap.grab():
                 time.sleep(0.001)
                 continue
             
-            # Retrieve the grabbed frame
             ret, frame = self.right_cap.retrieve()
             if not ret or frame is None:
                 time.sleep(0.001)
                 continue
             
             frame_counter += 1
-            
-            # NO FRAME SKIPPING - Process all frames to avoid buffer buildup
-            # CAP_PROP_BUFFERSIZE=1 ensures we get latest frame with minimal lag
             
             # Prevent counter overflow
             if frame_counter > 1000000:
@@ -850,9 +829,6 @@ class DualCameraManager:
                 del buffer
             
             del frame
-            
-            # Small sleep to prevent CPU spinning (Jetson optimization)
-            time.sleep(0.001)
     
     def _left_ai_loop(self):
         """Left AI thread - MEMORY LEAK PREVENTION & CPU OPTIMIZED"""

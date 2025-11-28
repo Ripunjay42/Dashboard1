@@ -588,47 +588,39 @@ class VideoStreamManager:
     
     def _video_stream_loop(self):
         """
-        THREAD 1: FAST Video Streaming with AGGRESSIVE LAG PREVENTION
+        THREAD 1: FAST Video Streaming - SMOOTH LAG-FREE FOR JETSON
         Applies latest detection overlay and streams at 15 FPS (Jetson optimized)
         """
         frame_counter = 0
-        last_buffer_flush = time.time()
         last_gc = time.time()
         
         while self.is_running:
             if not self.cap or not self.cap.isOpened():
                 break
             
-            # AGGRESSIVE BUFFER FLUSHING: Every 1 second to prevent ANY lag accumulation
-            current_time = time.time()
-            if current_time - last_buffer_flush > 1.0:  # Every 1 second (was 5)
-                # Flush buffer aggressively - discard ALL buffered frames
-                for _ in range(10):  # Flush up to 10 frames (was 3)
-                    self.cap.grab()
-                last_buffer_flush = current_time
-            
             # Periodic garbage collection to prevent memory buildup
+            current_time = time.time()
             if current_time - last_gc > 30.0:  # Every 30 seconds
                 gc.collect()
                 if hasattr(self.detector, 'device') and self.detector.device == 'cuda':
                     torch.cuda.empty_cache()
                 last_gc = current_time
             
-            # ALWAYS grab first to ensure we get the NEWEST frame (not buffered old one)
+            # SMOOTH APPROACH: Always grab twice - first discards buffered, second is fresh
+            # This prevents lag WITHOUT causing stutter
+            self.cap.grab()  # Discard potentially stale frame
+            
+            # Now grab and retrieve the fresh frame
             if not self.cap.grab():
                 time.sleep(0.001)
                 continue
             
-            # Retrieve the grabbed frame
             ret, frame = self.cap.retrieve()
             if not ret or frame is None:
                 time.sleep(0.001)
                 continue
             
             frame_counter += 1
-            
-            # NO FRAME SKIPPING - Process all frames to avoid buffer buildup
-            # The key to low latency is processing frames as fast as they come
             
             # Save raw frame for AI thread + get latest mask (single lock)
             with self.lock:
