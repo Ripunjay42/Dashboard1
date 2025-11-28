@@ -265,19 +265,19 @@ const Dashboard = ({ onSelectUseCase }) => {
   return (
     <div className="min-h-screen bg-black flex items-center justify-center p-2 sm:p-4">
       {/* Oval Dashboard Container */}
-  <div className="relative w-full max-w-[1200px] aspect-16/8">
+    <div className="relative w-full max-w-[1320px] aspect-16/8">
         {/* Outer Decorative Border with Car Dashboard Shape */}
         <div className="absolute inset-0" style={{
-          borderRadius: '45% 45% 40% 40% / 35% 35% 30% 30%',
-          border: '4px solid #1f2937',
-          boxShadow: '0 0 40px rgba(6, 182, 212, 0.3), inset 0 0 50px rgba(0, 0, 0, 0.5)',
-          background: 'linear-gradient(180deg, rgba(17, 24, 39, 0.4) 0%, rgba(0, 0, 0, 0.8) 100%)'
+            borderRadius: '45% 45% 40% 40% / 35% 35% 30% 30%',
+            border: '4.4px solid #1f2937',
+            boxShadow: '0 0 44px rgba(6, 182, 212, 0.3), inset 0 0 55px rgba(0, 0, 0, 0.5)',
+            background: 'linear-gradient(180deg, rgba(17, 24, 39, 0.4) 0%, rgba(0, 0, 0, 0.8) 100%)'
         }}></div>
 
         {/* Middle decorative ring */}
         <div className="absolute inset-3" style={{
-          borderRadius: '45% 45% 40% 40% / 35% 35% 30% 30%',
-          border: '1px solid rgba(6, 182, 212, 0.2)',
+            borderRadius: '45% 45% 40% 40% / 35% 35% 30% 30%',
+            border: '1.1px solid rgba(6, 182, 212, 0.2)',
           pointerEvents: 'none'
         }}></div>
 
@@ -290,20 +290,20 @@ const Dashboard = ({ onSelectUseCase }) => {
           />
 
           {/* Main Content Area - Vertically stacked with bars */}
-          <div className="flex flex-col items-center gap-2 w-full max-w-[1600px]">
+            <div className="flex flex-col items-center gap-2 w-full max-w-[1760px]">
             {/* Top Feature Buttons */}
             <FeatureBar activeFeature={activeFeature} onFeatureClick={handleFeatureClick} />
 
             {/* Main Dashboard Container - Meters and Center Display */}
             <div className="flex flex-col lg:flex-row items-center justify-center gap-0 w-full">
               {/* Left - Speedometer - Always visible */}
-              <div className="w-full max-w-[380px] shrink-0 flex justify-center">
+                <div className="w-full max-w-[418px] shrink-0 flex justify-center">
                 <Speedometer value={speed} />
               </div>
 
               {/* Center Display - Responsive */}
-              <div className="w-full max-w-[800px] shrink-0 flex justify-center">
-                <div className="bg-gray-900/90 backdrop-blur-sm border-4 border-gray-700 rounded-3xl overflow-hidden p-2 shadow-2xl w-full" style={{ minHeight: '320px', height: '480px', maxWidth: '900px' }}>
+                <div className="w-full max-w-[880px] shrink-0 flex justify-center">
+                  <div className="bg-gray-900/90 backdrop-blur-sm border-4 border-gray-700 rounded-3xl overflow-hidden p-2 shadow-2xl w-full" style={{ minHeight: '352px', height: '528px', maxWidth: '990px' }}>
                   <div className="h-full w-full">
                     <div className="bg-gray-900 border-2 rounded-2xl h-full w-full overflow-hidden relative">
                       {/* Show Pothole Detection when active */}
@@ -326,19 +326,20 @@ const Dashboard = ({ onSelectUseCase }) => {
               </div>
 
               {/* Right - Battery Meter - Always visible */}
-              <div className="w-full max-w-[380px] shrink-0 flex justify-center">
+                <div className="w-full max-w-[418px] shrink-0 flex justify-center">
                 <BatteryMeter value={battery} />
               </div>
             </div>
 
             {/* Bottom Status Bar */}
-            <StatusBar 
-              time={time} 
-              mqttConnected={mqttConnected}
-              useMqtt={useMqtt}
-              onToggleMqtt={() => setUseMqtt(!useMqtt)}
-              tripDistance={tripDistance}
-            />
+              <StatusBar 
+                time={time} 
+                mqttConnected={mqttConnected}
+                useMqtt={useMqtt}
+                onToggleMqtt={() => setUseMqtt(!useMqtt)}
+                tripDistance={tripDistance}
+                sizeMultiplier={1.1}
+              />
           </div>
         </div>
       </div>
