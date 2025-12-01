@@ -18,7 +18,7 @@ const VehicleIndicators = ({ leftTurnActive = false, rightTurnActive = false }) 
         {/* Left Turn Signal */}
         <div className="flex flex-col items-center" title="Left Turn Signal">
           <TbArrowBigLeftLinesFilled 
-            className={`text-xl sm:text-4xl transition-all duration-150 ${
+            className={`text-xl sm:text-7xl transition-all duration-150 ${
               leftTurnActive 
                 ? 'text-green-400 drop-shadow-[0_0_10px_rgba(74,222,128,0.8)] animate-pulse' 
                 : 'text-gray-400'
@@ -58,7 +58,7 @@ const VehicleIndicators = ({ leftTurnActive = false, rightTurnActive = false }) 
         {/* Right Turn Signal */}
         <div className="flex flex-col items-center" title="Right Turn Signal">
           <TbArrowBigRightLinesFilled 
-            className={`text-xl sm:text-4xl transition-all duration-150 ${
+            className={`text-xl sm:text-7xl transition-all duration-150 ${
               rightTurnActive 
                 ? 'text-green-400 drop-shadow-[0_0_10px_rgba(74,222,128,0.8)] animate-pulse' 
                 : 'text-gray-400'

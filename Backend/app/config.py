@@ -9,11 +9,11 @@ class Config:
     
     # Pothole detection model paths (platform-specific)
     if IS_JETSON:
-        # TensorRT engine for Jetson (optimized)
-        MODEL_PATH = os.environ.get('MODEL_PATH') or '/home/cdac/Desktop/mlmodels/best_robust_model.pth'
+        # PyTorch model for Jetson (UNetResNet50)
+        MODEL_PATH = os.environ.get('MODEL_PATH') or '/home/cdac/Desktop/mlmodels/retrained_best_model.pth'
     else:
-        # PyTorch model for Windows/Linux
-        MODEL_PATH = os.environ.get('MODEL_PATH') or r"C:\Users\ripunjay\Desktop\ml_models\best_robust_model.pth"
+        # PyTorch model for Windows/Linux (UNetResNet50)
+        MODEL_PATH = os.environ.get('MODEL_PATH') or r"C:\Users\ripunjay\Desktop\ml_models\retrained_best_model.pth"
     
     # YOLO model paths for blind spot detection (platform-specific)
     if IS_JETSON:

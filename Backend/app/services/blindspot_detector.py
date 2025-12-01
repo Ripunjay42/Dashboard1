@@ -29,7 +29,7 @@ _detector_lock = threading.Lock()
 # Configuration - OPTIMIZED FOR WINDOWS CPU
 FRAME_W, FRAME_H = 480, 270  # Higher resolution for better quality (Windows can handle this)
 YOLO_INPUT_W, YOLO_INPUT_H = 320, 180  # Small input for YOLO inference (CPU optimization)
-VEHICLE_CLASSES = [2, 3, 5, 7]  # car, truck, bus, motorbike
+VEHICLE_CLASSES = [0, 1, 2, 3, 5, 7]  # car, truck, bus, motorbike
 DEPTH_SCALE = 38
 NEAR_THRESHOLD = 3.0
 

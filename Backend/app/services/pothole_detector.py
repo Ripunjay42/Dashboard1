@@ -1,7 +1,6 @@
 import cv2
 import torch
 import numpy as np
-import segmentation_models_pytorch as smp
 from torchvision import transforms
 from PIL import Image
 import threading
@@ -31,6 +30,76 @@ else:
 # Global model instance for reuse
 _global_detector = None
 _detector_lock = threading.Lock()
+
+
+# ===============================================
+# MODEL ARCHITECTURE (MATCHES YOUR TRAINING CODE)
+# ===============================================
+class DecoderBlock(torch.nn.Module):
+    def __init__(self, in_ch, out_ch):
+        super().__init__()
+        self.block = torch.nn.Sequential(
+            torch.nn.Upsample(scale_factor=2, mode="bilinear", align_corners=False),
+            torch.nn.Conv2d(in_ch, out_ch, 3, padding=1),
+            torch.nn.BatchNorm2d(out_ch),
+            torch.nn.ReLU(inplace=True),
+            torch.nn.Conv2d(out_ch, out_ch, 3, padding=1),
+            torch.nn.BatchNorm2d(out_ch),
+            torch.nn.ReLU(inplace=True),
+        )
+
+    def forward(self, x):
+        return self.block(x)
+
+
+class UNetResNet50(torch.nn.Module):
+    def __init__(self):
+        super().__init__()
+        resnet = torch.hub.load("pytorch/vision:v0.10.0", "resnet50", weights=None)
+
+        self.encoder = torch.nn.ModuleDict({
+            "conv1": resnet.conv1,
+            "bn1":   resnet.bn1,
+            "relu":  resnet.relu,
+            "maxpool": resnet.maxpool,
+            "layer1": resnet.layer1,
+            "layer2": resnet.layer2,
+            "layer3": resnet.layer3,
+            "layer4": resnet.layer4,
+        })
+
+        self.center = torch.nn.Sequential(
+            torch.nn.Conv2d(2048, 1024, 3, padding=1),
+            torch.nn.BatchNorm2d(1024),
+            torch.nn.ReLU(inplace=True),
+        )
+
+        self.dec4 = DecoderBlock(1024, 512)
+        self.dec3 = DecoderBlock(512, 256)
+        self.dec2 = DecoderBlock(256, 128)
+        self.dec1 = DecoderBlock(128, 64)
+        self.dec0 = DecoderBlock(64, 32)
+
+        self.seg_head = torch.nn.Conv2d(32, 1, 1)
+
+    def forward(self, x):
+        x0 = self.encoder["conv1"](x)
+        x0 = self.encoder["bn1"](x0)
+        x0 = self.encoder["relu"](x0)
+        x1 = self.encoder["maxpool"](x0)
+        x1 = self.encoder["layer1"](x1)
+        x2 = self.encoder["layer2"](x1)
+        x3 = self.encoder["layer3"](x2)
+        x4 = self.encoder["layer4"](x3)
+
+        c = self.center(x4)
+        d4 = self.dec4(c)
+        d3 = self.dec3(d4)
+        d2 = self.dec2(d3)
+        d1 = self.dec1(d2)
+        d0 = self.dec0(d1)
+
+        return self.seg_head(d0)
 
 
 class PotholeDetector:
@@ -65,162 +134,118 @@ class PotholeDetector:
                 print(f"⚠️ CUDA memory allocation failed: {e}")
                 print("   Falling back to CPU mode")
                 self.device = 'cpu'
+        elif torch.cuda.is_available():
+            self.device = 'cuda'
+            print("✓ CUDA available")
         else:
             self.device = 'cpu'
             print("⚠️ Using CPU mode")
         
-        # Jetson-specific optimizations
+        # Input size MUST match training (512x512 for UNetResNet50)
+        # Jetson-specific optimizations for inference resolution
         if self.is_jetson:
             if self.device == 'cuda':
-                # CUDA MODE: Use moderate input size to avoid OOM
-                # Start with 96x96 instead of 128x128 for better memory management
-                self.input_size = (96, 96)  # Balanced between quality and memory
-                self.threshold = 0.45
+                # CUDA MODE: Use smaller input for Jetson to avoid OOM
+                self.input_size = (256, 256)  # Reduced for Jetson GPU memory
+                self.threshold = 0.5
                 print(f"   Jetson Orin detected - CUDA MODE: {self.input_size}")
-                print(f"   ⚠️  Using 96x96 input to conserve GPU memory")
             else:
-                # CPU MODE: Keep small for speed
-                self.input_size = (64, 64)
+                # CPU MODE: Even smaller for speed
+                self.input_size = (128, 128)
                 self.threshold = 0.5
                 print(f"   Jetson Orin detected - CPU MODE: {self.input_size}")
         else:
-            self.input_size = (128, 128)
-            self.threshold = 0.45
+            # Full resolution for powerful machines
+            self.input_size = (512, 512)
+            self.threshold = 0.5
+            print(f"   Using full resolution: {self.input_size}")
         
         try:
-            # Determine model type from file extension
-            model_extension = os.path.splitext(model_path)[1].lower()
+            self.use_tensorrt = False  # TensorRT not used for this model
             
-            if model_extension == '.engine' and self.is_jetson:
-                # TensorRT engine for Jetson (requires torch2trt or tensorrt)
-                print(f"   Loading TensorRT engine: {model_path}")
-                try:
-                    import tensorrt as trt
-                    import pycuda.driver as cuda
-                    import pycuda.autoinit
-                    
-                    # Load TensorRT engine
-                    self.use_tensorrt = True
-                    self.trt_logger = trt.Logger(trt.Logger.WARNING)
-                    
-                    with open(model_path, 'rb') as f:
-                        self.trt_engine = trt.Runtime(self.trt_logger).deserialize_cuda_engine(f.read())
-                    
-                    self.trt_context = self.trt_engine.create_execution_context()
-                    print(f"✓ TensorRT engine loaded successfully")
-                    
-                    # Setup TensorRT I/O bindings
-                    self.model = None  # No PyTorch model needed
-                    
-                except ImportError:
-                    print("⚠️ TensorRT not available, falling back to PyTorch model")
-                    print("   Install with: pip install tensorrt pycuda")
-                    self.use_tensorrt = False
-                    # Fall through to PyTorch loading
-                    model_extension = '.pth'
-                except Exception as e:
-                    print(f"⚠️ Error loading TensorRT engine: {e}")
-                    print("   Falling back to PyTorch model")
-                    self.use_tensorrt = False
-                    model_extension = '.pth'
-            else:
-                self.use_tensorrt = False
+            print(f"   Building UNetResNet50 model...")
             
-            # Load PyTorch model (.pth or .pt)
-            if not self.use_tensorrt:
-                print(f"   Building UNet ResNet50 model...")
+            # Aggressive garbage collection before building model
+            gc.collect()
+            if self.device == 'cuda':
+                torch.cuda.empty_cache()
+            
+            # Build model (same architecture as training)
+            try:
+                self.model = UNetResNet50()
+                print(f"   ✓ Model architecture created")
+            except Exception as e:
+                print(f"❌ Failed to create model: {e}")
+                raise
+            
+            # Load trained weights with error handling
+            if os.path.exists(model_path):
+                print(f"   Loading weights: {model_path}")
                 
-                # Aggressive garbage collection before building model
-                gc.collect()
-                if self.device == 'cuda':
-                    torch.cuda.empty_cache()
-                
-                # Build model (same architecture as training)
+                # Load weights to CPU first to avoid CUDA allocation errors
                 try:
-                    self.model = smp.Unet(
-                        encoder_name='resnet50',
-                        encoder_weights=None,
-                        in_channels=3,
-                        classes=1,
-                        activation=None
-                    )
-                    print(f"   ✓ Model architecture created")
+                    state_dict = torch.load(model_path, map_location='cpu', weights_only=False)
+                    self.model.load_state_dict(state_dict, strict=False)
+                    print(f"   ✓ Weights loaded to CPU")
+                    
+                    # Clean up state_dict from memory
+                    del state_dict
+                    gc.collect()
                 except Exception as e:
-                    print(f"❌ Failed to create model: {e}")
+                    print(f"❌ Failed to load weights: {e}")
                     raise
-                
-                # Load trained weights with error handling
-                if os.path.exists(model_path):
-                    print(f"   Loading weights: {model_path}")
+            else:
+                print(f"⚠️ Warning: Model file not found at {model_path}")
+            
+            # Move to device AFTER loading weights with proper error handling
+            try:
+                if self.device == 'cuda':
+                    print(f"   Moving model to CUDA...")
                     
-                    # Load weights to CPU first to avoid CUDA allocation errors
-                    try:
-                        state_dict = torch.load(model_path, map_location='cpu', weights_only=True)
-                        self.model.load_state_dict(state_dict)
-                        print(f"   ✓ Weights loaded to CPU")
-                        
-                        # Clean up state_dict from memory
-                        del state_dict
-                        gc.collect()
-                    except Exception as e:
-                        print(f"❌ Failed to load weights: {e}")
-                        raise
-                else:
-                    print(f"⚠️ Warning: Model file not found at {model_path}")
-                
-                # Move to device AFTER loading weights with proper error handling
-                try:
-                    if self.device == 'cuda':
-                        print(f"   Moving model to CUDA...")
-                        
-                        # Aggressive memory cleanup before CUDA transfer
-                        gc.collect()
-                        torch.cuda.empty_cache()
-                        torch.cuda.synchronize()  # Wait for all operations to complete
-                        
-                        # Try to move model to CUDA
-                        self.model = self.model.to(self.device)
-                        print(f"   ✓ Model successfully moved to CUDA")
-                        
-                        # Clear cache again after model transfer
-                        torch.cuda.empty_cache()
-                    else:
-                        self.model = self.model.to(self.device)
-                        
-                except RuntimeError as e:
-                    print(f"❌ CUDA out of memory: {e}")
-                    print("   Falling back to CPU mode")
-                    
-                    # Force cleanup
-                    if hasattr(self, 'model'):
-                        del self.model
+                    # Aggressive memory cleanup before CUDA transfer
                     gc.collect()
                     torch.cuda.empty_cache()
+                    if torch.cuda.is_available():
+                        torch.cuda.synchronize()  # Wait for all operations to complete
                     
-                    # Rebuild model on CPU
-                    self.device = 'cpu'
-                    self.model = smp.Unet(
-                        encoder_name='resnet50',
-                        encoder_weights=None,
-                        in_channels=3,
-                        classes=1,
-                        activation=None
-                    )
-                    state_dict = torch.load(model_path, map_location='cpu', weights_only=True)
-                    self.model.load_state_dict(state_dict)
-                    del state_dict
-                    self.model = self.model.to('cpu')
+                    # Try to move model to CUDA
+                    self.model = self.model.to(self.device)
+                    print(f"   ✓ Model successfully moved to CUDA")
                     
-                    # Update input size for CPU mode
-                    if self.is_jetson:
-                        self.input_size = (64, 64)
-                        print(f"   Using CPU-optimized input size: {self.input_size}")
+                    # Clear cache again after model transfer
+                    torch.cuda.empty_cache()
+                else:
+                    self.model = self.model.to(self.device)
+                    
+            except RuntimeError as e:
+                print(f"❌ CUDA out of memory: {e}")
+                print("   Falling back to CPU mode")
                 
-                self.model.eval()
+                # Force cleanup
+                if hasattr(self, 'model'):
+                    del self.model
+                gc.collect()
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
                 
-                # Disable gradient computation globally for this model
-                for param in self.model.parameters():
-                    param.requires_grad = False
+                # Rebuild model on CPU
+                self.device = 'cpu'
+                self.model = UNetResNet50()
+                state_dict = torch.load(model_path, map_location='cpu', weights_only=False)
+                self.model.load_state_dict(state_dict, strict=False)
+                del state_dict
+                self.model = self.model.to('cpu')
+                
+                # Update input size for CPU mode
+                if self.is_jetson:
+                    self.input_size = (128, 128)
+                    print(f"   Using CPU-optimized input size: {self.input_size}")
+            
+            self.model.eval()
+            
+            # Disable gradient computation globally for this model
+            for param in self.model.parameters():
+                param.requires_grad = False
             
         except Exception as e:
             print(f"❌ Error loading model: {e}")
@@ -290,45 +315,45 @@ class PotholeDetector:
         return mask_resized * 255
 
     def detect(self, frame):
-        """Run inference on a single frame with CUDA acceleration or TensorRT if available"""
+        """Run inference on a single frame with CUDA acceleration - FAST VERSION"""
         try:
             original_size = frame.shape[:2]
             
-            # TensorRT inference path (Jetson optimized)
-            if self.use_tensorrt and hasattr(self, 'trt_context'):
-                # Preprocess for TensorRT
-                tensor = self.preprocess(frame)
-                tensor_np = tensor.cpu().numpy()
-                
-                # TensorRT inference (implement based on your engine bindings)
-                # Note: This is a simplified example - you'll need to implement actual TensorRT inference
-                # based on your engine's input/output bindings
-                print("⚠️ TensorRT inference not fully implemented yet")
-                print("   Falling back to PyTorch inference")
-                # Fall through to PyTorch inference
+            # ---- FAST PREPROCESSING (no PIL, direct numpy/torch) ----
+            frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            frame_rgb = cv2.resize(frame_rgb, self.input_size)
             
-            # PyTorch inference path
-            if not self.use_tensorrt or not hasattr(self, 'trt_context'):
-                tensor = self.preprocess(frame)
-                
-                with torch.no_grad():
-                    # Use mixed precision for better performance on CUDA (but not on Jetson Orin due to stability)
-                    if self.device == 'cuda' and not self.is_jetson:
-                        with torch.cuda.amp.autocast():
-                            output = self.model(tensor)
-                    else:
-                        # Regular inference for CPU or Jetson
+            tensor = torch.from_numpy(frame_rgb).permute(2, 0, 1).float() / 255.0
+            tensor = transforms.functional.normalize(
+                tensor,
+                mean=[0.485, 0.456, 0.406],
+                std=[0.229, 0.224, 0.225]
+            )
+            tensor = tensor.unsqueeze(0).to(self.device, non_blocking=True)
+            
+            # ---- INFERENCE ----
+            with torch.no_grad():
+                if self.device == 'cuda':
+                    # Use mixed precision for faster inference
+                    with torch.cuda.amp.autocast():
                         output = self.model(tensor)
+                else:
+                    output = self.model(tensor)
             
-                result = self.postprocess(output, original_size)
-                
-                # Cleanup for Jetson
-                if self.is_jetson:
-                    del tensor, output
-                    if self.device == 'cuda':
-                        torch.cuda.empty_cache()
-                
-                return result
+            # ---- POSTPROCESS ----
+            prob_mask = torch.sigmoid(output)[0, 0].cpu().numpy()
+            mask = (prob_mask > self.threshold).astype(np.uint8)
+            
+            mask_resized = cv2.resize(mask, (original_size[1], original_size[0]),
+                                      interpolation=cv2.INTER_NEAREST)
+            
+            # Cleanup for Jetson
+            if self.is_jetson:
+                del tensor, output
+                if self.device == 'cuda':
+                    torch.cuda.empty_cache()
+            
+            return mask_resized * 255
             
         except Exception as e:
             print(f"❌ Detection error: {e}")
