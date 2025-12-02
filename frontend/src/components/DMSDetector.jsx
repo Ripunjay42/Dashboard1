@@ -186,7 +186,7 @@ const DMSDetector = ({ onBack }) => {
           </>
         )}
         
-        {isDrowsy && (
+        {/* {isDrowsy && (
           <div className="px-4 py-2 bg-red-900/50 rounded-lg border border-red-500">
             <span className="text-sm text-red-300 font-semibold">😴 Drowsy Alert!</span>
           </div>
@@ -196,7 +196,7 @@ const DMSDetector = ({ onBack }) => {
           <div className="px-4 py-2 bg-orange-900/50 rounded-lg border border-orange-500">
             <span className="text-sm text-orange-300 font-semibold">🥱 Yawn Alert!</span>
           </div>
-        )}
+        )} */}
       </div>
     </div>
   );
