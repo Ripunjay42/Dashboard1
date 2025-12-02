@@ -34,8 +34,8 @@ class Config:
     
     # DMS (Driver Monitoring System) camera ID
     # Uses front-facing camera to monitor driver
-    DMS_CAMERA_ID = int(os.environ.get('DMS_CAMERA_ID', 0))  # Camera 0 for DMS (driver-facing)
-    
+    DMS_CAMERA_ID = int(os.environ.get('DMS_CAMERA_ID', 6))  # Camera 6 for DMS (driver-facing)
+
     # MQTT Configuration
     MQTT_BROKER = os.environ.get('MQTT_BROKER', '10.42.0.1')
     MQTT_PORT = int(os.environ.get('MQTT_PORT', 1883))

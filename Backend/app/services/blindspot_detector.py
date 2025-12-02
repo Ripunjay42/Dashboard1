@@ -662,7 +662,16 @@ class DualCameraManager:
         if self.active:
             return True
         
+        # Import camera manager for lock management
+        from app.services.camera_manager import acquire_camera_lock, release_camera_lock
+        
+        # Acquire camera lock before opening
+        if not acquire_camera_lock("blindspot", timeout=3.0):
+            print("❌ Could not acquire camera lock - another service may be using the camera")
+            return False
+        
         if not self._open_cameras():
+            release_camera_lock("blindspot")  # Release lock if camera open fails
             return False
         
         # Load detector
@@ -696,7 +705,7 @@ class DualCameraManager:
         self.right_ai_thread.start()
         
         mode_text = "Dual camera mode" if self.dual_camera_mode else "Single camera mode (both sides)"
-        print(f"Blind spot detection started with 4 threads! ({mode_text})")
+        print(f"✓ Blind spot detection started with 4 threads! ({mode_text})")
         print("   Left camera: Video + AI threads")  
         print("   Right camera: Video + AI threads")
         print("   Expected performance: 15-30 FPS video + 10 FPS AI per camera")
@@ -961,37 +970,39 @@ class DualCameraManager:
             return bool(self.right_danger)
     
     def stop(self):
-        """Stop dual camera blind spot detection - FAST cleanup for quick tab switching"""
+        """Stop dual camera blind spot detection - ROBUST cleanup for Jetson"""
         print("🛑 Stopping blind spot detection...")
         self.running = False
         self.active = False
         
-        # Quick cleanup - reduced timeouts for faster tab switching
-        time.sleep(0.1)
+        # Wait for threads to notice the stop flag
+        time.sleep(0.15)
         
-        # Release cameras immediately (don't wait for threads)
+        # Import camera manager for proper cleanup
+        from app.services.camera_manager import force_release_camera, release_camera_lock
+        
+        # Release cameras with proper Jetson cleanup
         if self.left_cap:
-            try:
-                self.left_cap.release()
-            except:
-                pass
+            force_release_camera(self.left_cap, "blindspot-left")
             self.left_cap = None
         if self.right_cap:
-            try:
-                self.right_cap.release()
-            except:
-                pass
+            force_release_camera(self.right_cap, "blindspot-right")
             self.right_cap = None
+        
+        # Release camera lock
+        release_camera_lock("blindspot")
         
         # Clear buffers
         with self.left_lock:
             self.left_frame = None
+            self.left_latest_frame = None
             self.left_danger = False
         with self.right_lock:
             self.right_frame = None
+            self.right_latest_frame = None
             self.right_danger = False
         
-        # Force garbage collection on Jetson for fast camera release
+        # Force garbage collection on Jetson
         if self.is_jetson:
             gc.collect()
         

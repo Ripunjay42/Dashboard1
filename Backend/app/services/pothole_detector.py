@@ -588,9 +588,18 @@ class VideoStreamManager:
         if self.is_running:
             return True
         
+        # Import camera manager for lock management
+        from app.services.camera_manager import acquire_camera_lock, release_camera_lock
+        
+        # Acquire camera lock before opening
+        if not acquire_camera_lock("pothole", timeout=3.0):
+            print("❌ Could not acquire camera lock - another service may be using the camera")
+            return False
+        
         # Open camera if not already open
         if self.cap is None or not self.cap.isOpened():
             if not self._open_camera():
+                release_camera_lock("pothole")  # Release lock if camera open fails
                 return False
         else:
             print("Camera already initialized, starting threads...")
@@ -605,7 +614,7 @@ class VideoStreamManager:
         ai_thread = threading.Thread(target=self._ai_inference_loop, daemon=True)
         ai_thread.start()
         
-        print(" Two parallel threads started:")
+        print("✓ Two parallel threads started:")
         print("  - Thread 1: Video streaming (30 FPS)")
         print("  - Thread 2: AI inference (REAL-TIME, adaptive)")
         
@@ -758,20 +767,23 @@ class VideoStreamManager:
             return self.pothole_detected
     
     def stop(self):
-        """Stop both video and AI threads - FAST cleanup for quick tab switching"""
+        """Stop both video and AI threads - ROBUST cleanup for Jetson"""
         print("🛑 Stopping pothole detection...")
         self.is_running = False
         
-        # Quick cleanup - don't wait too long
-        time.sleep(0.1)  # Reduced from 0.3s
+        # Wait for threads to notice the stop flag
+        time.sleep(0.15)
         
-        # Release camera immediately
+        # Import camera manager for proper cleanup
+        from app.services.camera_manager import force_release_camera, release_camera_lock
+        
+        # Release camera with proper Jetson cleanup
         if self.cap is not None:
-            try:
-                self.cap.release()
-            except:
-                pass
+            force_release_camera(self.cap, "pothole")
             self.cap = None
+        
+        # Release camera lock
+        release_camera_lock("pothole")
         
         # Clear all buffers
         with self.lock:
@@ -785,7 +797,7 @@ class VideoStreamManager:
         self.is_currently_detecting = False
         self.frames_since_detection = 0
         
-        # Force garbage collection on Jetson for fast camera release
+        # Force garbage collection on Jetson
         if hasattr(self.detector, 'is_jetson') and self.detector.is_jetson:
             gc.collect()
             if hasattr(self.detector, 'device') and self.detector.device == 'cuda':

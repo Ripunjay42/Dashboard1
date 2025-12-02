@@ -341,7 +341,16 @@ class DMSStreamManager:
         if self.is_running:
             return True
         
+        # Import camera manager for lock management
+        from app.services.camera_manager import acquire_camera_lock, release_camera_lock
+        
+        # Acquire camera lock before opening
+        if not acquire_camera_lock("dms", timeout=3.0):
+            print("❌ Could not acquire camera lock - another service may be using the camera")
+            return False
+        
         if not self._open_camera():
+            release_camera_lock("dms")  # Release lock if camera open fails
             return False
         
         self.is_running = True
@@ -496,20 +505,23 @@ class DMSStreamManager:
             return self.is_yawning
     
     def stop(self):
-        """Stop DMS detection - FAST cleanup for quick tab switching"""
+        """Stop DMS detection - ROBUST cleanup for Jetson"""
         print("🛑 Stopping DMS detection...")
         self.is_running = False
         
-        # Quick cleanup - don't wait too long
-        time.sleep(0.1)  # Reduced from 0.3s
+        # Wait for threads to notice the stop flag
+        time.sleep(0.15)
         
-        # Release camera immediately
+        # Import camera manager for proper cleanup
+        from app.services.camera_manager import force_release_camera, release_camera_lock
+        
+        # Release camera with proper Jetson cleanup
         if self.cap is not None:
-            try:
-                self.cap.release()
-            except:
-                pass
+            force_release_camera(self.cap, "dms")
             self.cap = None
+        
+        # Release camera lock
+        release_camera_lock("dms")
         
         # Clear all buffers
         with self.lock:
@@ -523,7 +535,7 @@ class DMSStreamManager:
             self.drowsy_alert_active = False
             self.yawn_alert_active = False
         
-        # Force garbage collection on Jetson for fast camera release
+        # Force garbage collection on Jetson
         if self.is_jetson:
             gc.collect()
         

@@ -247,20 +247,31 @@ const Dashboard = ({ onSelectUseCase }) => {
     const API_BASE = 'http://localhost:5000/api';
     
     try {
+      let response;
       if (currentFeature === 'pothole') {
         console.log('Stopping pothole detection...');
-        await fetch(`${API_BASE}/pothole/stop`, { method: 'POST' });
+        response = await fetch(`${API_BASE}/pothole/stop`, { method: 'POST' });
       } else if (currentFeature === 'blindspot') {
         console.log('Stopping blind spot detection...');
-        await fetch(`${API_BASE}/blindspot/stop`, { method: 'POST' });
+        response = await fetch(`${API_BASE}/blindspot/stop`, { method: 'POST' });
       } else if (currentFeature === 'dms') {
         console.log('Stopping DMS detection...');
-        await fetch(`${API_BASE}/dms/stop`, { method: 'POST' });
+        response = await fetch(`${API_BASE}/dms/stop`, { method: 'POST' });
       }
-      // Small delay to ensure camera is fully released on Jetson
-      await new Promise(resolve => setTimeout(resolve, 150));
+      
+      // Wait for response to confirm stop is complete
+      if (response) {
+        await response.json();
+      }
+      
+      // Longer delay on Jetson to ensure camera is fully released
+      // This prevents "camera busy" errors when switching
+      await new Promise(resolve => setTimeout(resolve, 300));
+      console.log(`✓ ${currentFeature} stopped and camera released`);
     } catch (error) {
       console.error(`Error stopping ${currentFeature}:`, error);
+      // Even on error, wait a bit before trying to open new camera
+      await new Promise(resolve => setTimeout(resolve, 200));
     }
   };
 
