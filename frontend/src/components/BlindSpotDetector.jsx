@@ -1,5 +1,4 @@
 import React, { useState, useEffect, useRef } from 'react';
-import WebRTCVideo from './WebRTCVideo';
 
 const BlindSpotDetector = ({ onBack }) => {
   const [isActive, setIsActive] = useState(false);
@@ -135,14 +134,11 @@ const BlindSpotDetector = ({ onBack }) => {
               <div className="absolute top-2 left-2 bg-black/70 px-3 py-1 rounded-lg z-10">
                 <span className="text-white text-sm font-bold">LEFT MIRROR</span>
               </div>
-              {/* WebRTC Video with MJPEG fallback */}
-              <WebRTCVideo
-                trackId="blindspot_left"
-                mjpegUrl={`${API_URL}/left_feed`}
-                enabled={isActive}
+              <img
+                src={`${API_URL}/left_feed`}
+                alt="Left Blind Spot Feed"
                 className="w-full h-full object-contain"
-                preferWebRTC={true}
-                showStatus={false}
+                style={{ display: 'block' }}
               />
               {leftDanger && (
                 <div className="absolute top-2 right-2 z-20">
@@ -161,14 +157,11 @@ const BlindSpotDetector = ({ onBack }) => {
               <div className="absolute top-2 left-2 bg-black/70 px-3 py-1 rounded-lg z-10">
                 <span className="text-white text-sm font-bold">RIGHT MIRROR</span>
               </div>
-              {/* WebRTC Video with MJPEG fallback */}
-              <WebRTCVideo
-                trackId="blindspot_right"
-                mjpegUrl={`${API_URL}/right_feed`}
-                enabled={isActive}
+              <img
+                src={`${API_URL}/right_feed`}
+                alt="Right Blind Spot Feed"
                 className="w-full h-full object-contain"
-                preferWebRTC={true}
-                showStatus={false}
+                style={{ display: 'block' }}
               />
               {rightDanger && (
                 <div className="absolute top-2 right-2 z-20">

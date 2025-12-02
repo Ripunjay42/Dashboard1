@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { TbArrowLeft } from 'react-icons/tb';
-import WebRTCVideo from './WebRTCVideo';
 
 const DMSDetector = ({ onBack }) => {
   const [isActive, setIsActive] = useState(false);
@@ -133,13 +132,11 @@ const DMSDetector = ({ onBack }) => {
 
         {!loading && !error && (
           <>
-            {/* WebRTC Video with MJPEG fallback */}
-            <WebRTCVideo
-              trackId="dms"
-              mjpegUrl={`${API_URL}/video_feed`}
-              enabled={isActive}
+            <img
+              src={`${API_URL}/video_feed`}
+              alt="DMS Detection Feed"
               className="max-w-full max-h-full object-contain"
-              preferWebRTC={true}
+              style={{ display: 'block' }}
             />
             
             {/* Drowsiness Alert Overlay */}

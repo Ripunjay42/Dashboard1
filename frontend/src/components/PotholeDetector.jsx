@@ -1,5 +1,4 @@
 import React, { useState, useEffect, useRef } from 'react';
-import WebRTCVideo from './WebRTCVideo';
 
 const PotholeDetector = ({ onBack }) => {
   const [isActive, setIsActive] = useState(false);
@@ -128,13 +127,11 @@ const PotholeDetector = ({ onBack }) => {
 
         {!loading && !error && (
           <>
-            {/* WebRTC Video with MJPEG fallback */}
-            <WebRTCVideo
-              trackId="pothole"
-              mjpegUrl={`${API_URL}/video_feed`}
-              enabled={isActive}
+            <img
+              src={`${API_URL}/video_feed`}
+              alt="Pothole Detection Feed"
               className="max-w-full max-h-full object-contain"
-              preferWebRTC={true}
+              style={{ display: 'block' }}
             />
             
             {/* Pothole Detection Alert Overlay */}
