@@ -758,21 +758,40 @@ class VideoStreamManager:
             return self.pothole_detected
     
     def stop(self):
-        """Stop both video and AI threads"""
+        """Stop both video and AI threads - FAST cleanup for quick tab switching"""
+        print("🛑 Stopping pothole detection...")
         self.is_running = False
-        time.sleep(0.3)  # Give threads time to exit
         
+        # Quick cleanup - don't wait too long
+        time.sleep(0.1)  # Reduced from 0.3s
+        
+        # Release camera immediately
         if self.cap is not None:
-            self.cap.release()
+            try:
+                self.cap.release()
+            except:
+                pass
             self.cap = None
         
+        # Clear all buffers
         with self.lock:
             self.latest_frame = None
             self.encoded_frame = None
             self.current_mask = None
             self.pothole_detected = False
         
-        print(" Video and AI threads stopped")
+        # Clear detection history
+        self.detection_history = []
+        self.is_currently_detecting = False
+        self.frames_since_detection = 0
+        
+        # Force garbage collection on Jetson for fast camera release
+        if hasattr(self.detector, 'is_jetson') and self.detector.is_jetson:
+            gc.collect()
+            if hasattr(self.detector, 'device') and self.detector.device == 'cuda':
+                torch.cuda.empty_cache()
+        
+        print("✓ Pothole detection stopped")
     
     def is_active(self):
         """Check if stream is active"""

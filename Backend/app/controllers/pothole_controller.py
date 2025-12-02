@@ -29,12 +29,13 @@ def start_detection(model_path, camera_id):
 
 
 def stop_detection():
-    """Stop the pothole detection stream"""
+    """Stop the pothole detection stream and reset manager for clean restart"""
     global video_manager
     if video_manager is not None:
         video_manager.stop()
+        video_manager = None  # Reset for fresh initialization on next start
         return {'status': 'success', 'message': 'Detection stopped'}
-    return {'status': 'error', 'message': 'No active stream'}, 400
+    return {'status': 'success', 'message': 'Detection was not running'}
 
 
 def get_stream_status():

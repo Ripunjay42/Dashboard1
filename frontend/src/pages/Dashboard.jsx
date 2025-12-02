@@ -3,6 +3,7 @@ import Speedometer from '../components/Speedometer';
 import BatteryMeter from '../components/BatteryMeter';
 import PotholeDetector from '../components/PotholeDetector';
 import BlindSpotDetector from '../components/BlindSpotDetector';
+import DMSDetector from '../components/DMSDetector';
 import FeatureBar from '../components/FeatureBar';
 import StatusBar from '../components/StatusBar';
 import VehicleIndicators from '../components/VehicleIndicators';
@@ -252,13 +253,21 @@ const Dashboard = ({ onSelectUseCase }) => {
       } else if (currentFeature === 'blindspot') {
         console.log('Stopping blind spot detection...');
         await fetch(`${API_BASE}/blindspot/stop`, { method: 'POST' });
+      } else if (currentFeature === 'dms') {
+        console.log('Stopping DMS detection...');
+        await fetch(`${API_BASE}/dms/stop`, { method: 'POST' });
       }
+      // Small delay to ensure camera is fully released on Jetson
+      await new Promise(resolve => setTimeout(resolve, 150));
     } catch (error) {
       console.error(`Error stopping ${currentFeature}:`, error);
     }
   };
 
   const handleFeatureClick = async (featureId) => {
+    // If clicking the same feature, do nothing
+    if (activeFeature === featureId) return;
+    
     // If switching to a different feature, stop the current one first
     if (activeFeature && activeFeature !== featureId) {
       await stopActiveFeature(activeFeature);
@@ -275,6 +284,11 @@ const Dashboard = ({ onSelectUseCase }) => {
       setActiveFeature('blindspot');
       if (onSelectUseCase) {
         onSelectUseCase('blindspot');
+      }
+    } else if (featureId === 'dms') {
+      setActiveFeature('dms');
+      if (onSelectUseCase) {
+        onSelectUseCase('dms');
       }
     } else if (featureId === null) {
       // Home button clicked - go back to main view
@@ -338,6 +352,11 @@ const Dashboard = ({ onSelectUseCase }) => {
                       ) : activeFeature === 'blindspot' ? (
                         <BlindSpotDetector onBack={async () => {
                           await stopActiveFeature('blindspot');
+                          setActiveFeature(null);
+                        }} />
+                      ) : activeFeature === 'dms' ? (
+                        <DMSDetector onBack={async () => {
+                          await stopActiveFeature('dms');
                           setActiveFeature(null);
                         }} />
                       ) : (

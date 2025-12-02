@@ -32,6 +32,10 @@ class Config:
     LEFT_CAMERA_ID = int(os.environ.get('LEFT_CAMERA_ID', 2))   # Camera 2 for left blind spot
     RIGHT_CAMERA_ID = int(os.environ.get('RIGHT_CAMERA_ID', 4))  # Camera 4 for right blind spot
     
+    # DMS (Driver Monitoring System) camera ID
+    # Uses front-facing camera to monitor driver
+    DMS_CAMERA_ID = int(os.environ.get('DMS_CAMERA_ID', 0))  # Camera 0 for DMS (driver-facing)
+    
     # MQTT Configuration
     MQTT_BROKER = os.environ.get('MQTT_BROKER', '10.42.0.1')
     MQTT_PORT = int(os.environ.get('MQTT_PORT', 1883))

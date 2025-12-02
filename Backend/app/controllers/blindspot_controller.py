@@ -33,12 +33,13 @@ def start_detection(left_cam_id=0, right_cam_id=1):
 
 
 def stop_detection():
-    """Stop the blind spot detection"""
+    """Stop the blind spot detection and reset manager for clean restart"""
     global camera_manager
     if camera_manager is not None:
         camera_manager.stop()
+        camera_manager = None  # Reset for fresh initialization on next start
         return {'status': 'success', 'message': 'Detection stopped'}
-    return {'status': 'error', 'message': 'No active detection'}, 400
+    return {'status': 'success', 'message': 'Detection was not running'}
 
 
 def get_stream_status():

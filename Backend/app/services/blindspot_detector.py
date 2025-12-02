@@ -961,29 +961,41 @@ class DualCameraManager:
             return bool(self.right_danger)
     
     def stop(self):
-        """Stop dual camera blind spot detection (4 threads)"""
+        """Stop dual camera blind spot detection - FAST cleanup for quick tab switching"""
+        print("🛑 Stopping blind spot detection...")
         self.running = False
         self.active = False
         
-        # Wait for all threads to finish
-        if self.left_video_thread:
-            self.left_video_thread.join(timeout=2)
-        if self.left_ai_thread:
-            self.left_ai_thread.join(timeout=2)
-        if self.right_video_thread:
-            self.right_video_thread.join(timeout=2)
-        if self.right_ai_thread:
-            self.right_ai_thread.join(timeout=2)
+        # Quick cleanup - reduced timeouts for faster tab switching
+        time.sleep(0.1)
         
-        # Release cameras
+        # Release cameras immediately (don't wait for threads)
         if self.left_cap:
-            self.left_cap.release()
+            try:
+                self.left_cap.release()
+            except:
+                pass
             self.left_cap = None
         if self.right_cap:
-            self.right_cap.release()
+            try:
+                self.right_cap.release()
+            except:
+                pass
             self.right_cap = None
         
-        print("Dual camera blind spot detection stopped (Windows CPU optimized)")
+        # Clear buffers
+        with self.left_lock:
+            self.left_frame = None
+            self.left_danger = False
+        with self.right_lock:
+            self.right_frame = None
+            self.right_danger = False
+        
+        # Force garbage collection on Jetson for fast camera release
+        if self.is_jetson:
+            gc.collect()
+        
+        print("✓ Blind spot detection stopped")
     
     def is_active(self):
         """Check if detection is active"""
