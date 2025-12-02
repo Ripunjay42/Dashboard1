@@ -140,7 +140,7 @@ const DMSDetector = ({ onBack }) => {
             />
             
             {/* Drowsiness Alert Overlay */}
-            {isDrowsy && (
+            {/* {isDrowsy && (
               <div className="absolute top-4 left-1/2 transform -translate-x-1/2 z-20">
                 <div className="bg-red-600 text-white px-6 py-3 rounded-lg shadow-2xl flex items-center gap-3 animate-pulse">
                   <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -149,10 +149,10 @@ const DMSDetector = ({ onBack }) => {
                   <span className="font-bold text-lg">DROWSINESS DETECTED!</span>
                 </div>
               </div>
-            )}
+            )} */}
 
             {/* Yawning Alert Overlay */}
-            {isYawning && !isDrowsy && (
+            {/* {isYawning && !isDrowsy && (
               <div className="absolute top-4 left-1/2 transform -translate-x-1/2 z-20">
                 <div className="bg-orange-500 text-white px-6 py-3 rounded-lg shadow-2xl flex items-center gap-3 animate-pulse">
                   <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -161,7 +161,7 @@ const DMSDetector = ({ onBack }) => {
                   <span className="font-bold text-lg">YAWNING DETECTED!</span>
                 </div>
               </div>
-            )}
+            )} */}
           </>
         )}
       </div>
