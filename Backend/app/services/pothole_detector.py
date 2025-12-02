@@ -622,18 +622,59 @@ class VideoStreamManager:
     
     def _video_stream_loop(self):
         """
-        THREAD 1: FAST Video Streaming - SMOOTH LAG-FREE FOR JETSON
-        Applies latest detection overlay and streams at 15 FPS (Jetson optimized)
+        THREAD 1: FAST Video Streaming - OPTIMIZED FOR JETSON BROWSER
+        
+        Supports both MJPEG and WebRTC streaming:
+        - MJPEG: Traditional HTTP streaming (fallback)
+        - WebRTC: Modern, low-latency streaming (preferred)
+        
+        Key optimizations to prevent browser lag:
+        1. Lower resolution (320x240 on Jetson) - browser can handle it better
+        2. Lower FPS (~15 FPS) - human eye still sees smooth motion
+        3. Lower JPEG quality - reduces bandwidth and browser decoding load
+        4. Frame throttling - prevents overwhelming the browser
         """
         frame_counter = 0
         last_gc = time.time()
+        last_frame_time = time.time()
+        
+        # Try to get WebRTC track for this stream
+        webrtc_track = None
+        try:
+            from app.services.webrtc_service import get_webrtc_manager, is_webrtc_available
+            if is_webrtc_available():
+                manager = get_webrtc_manager()
+                webrtc_track = manager.create_track('pothole', fps=20)
+                print("✓ WebRTC track created for pothole detection")
+        except Exception as e:
+            print(f"⚠️ WebRTC not available, using MJPEG fallback: {e}")
+        
+        # JETSON BROWSER OPTIMIZATION: Target ~15 FPS to reduce browser load
+        # Higher FPS causes memory leaks in Epiphany/Chromium on ARM
+        if hasattr(self.detector, 'is_jetson') and self.detector.is_jetson:
+            target_fps = 15
+            frame_interval = 1.0 / target_fps  # ~66ms between frames
+            stream_resolution = (320, 240)  # Lower res for browser
+            jpeg_quality = 50  # Lower quality = less browser decoding work
+        else:
+            target_fps = 25
+            frame_interval = 1.0 / target_fps
+            stream_resolution = (480, 360)
+            jpeg_quality = self.jpeg_quality
         
         while self.is_running:
             if not self.cap or not self.cap.isOpened():
                 break
             
-            # Periodic garbage collection to prevent memory buildup
+            # Frame rate limiting - don't overwhelm the browser
             current_time = time.time()
+            elapsed = current_time - last_frame_time
+            if elapsed < frame_interval:
+                time.sleep(frame_interval - elapsed)
+                current_time = time.time()
+            last_frame_time = current_time
+            
+            # Periodic garbage collection to prevent memory buildup
             if current_time - last_gc > 30.0:  # Every 30 seconds
                 gc.collect()
                 if hasattr(self.detector, 'device') and self.detector.device == 'cuda':
@@ -669,13 +710,18 @@ class VideoStreamManager:
             else:
                 overlay_frame = frame
             
-            # Smart resize for Jetson - smaller but good quality
-            if hasattr(self.detector, 'is_jetson') and self.detector.is_jetson:
-                overlay_frame = cv2.resize(overlay_frame, (480, 360), interpolation=cv2.INTER_AREA)
+            # Push to WebRTC track (if available) - FULL RESOLUTION for WebRTC
+            if webrtc_track is not None:
+                # WebRTC handles its own encoding, send higher quality frame
+                webrtc_frame = cv2.resize(overlay_frame, (640, 480), interpolation=cv2.INTER_AREA)
+                webrtc_track.update_frame(webrtc_frame)
             
-            # Fast JPEG encoding with optimization flag
+            # Resize to stream resolution (lower for Jetson browser MJPEG)
+            overlay_frame = cv2.resize(overlay_frame, stream_resolution, interpolation=cv2.INTER_AREA)
+            
+            # Fast JPEG encoding with optimization flag (for MJPEG fallback)
             encode_param = [
-                int(cv2.IMWRITE_JPEG_QUALITY), self.jpeg_quality,
+                int(cv2.IMWRITE_JPEG_QUALITY), jpeg_quality,
                 int(cv2.IMWRITE_JPEG_OPTIMIZE), 1  # Enable fast encoding
             ]
             ret, buffer = cv2.imencode('.jpg', overlay_frame, encode_param)

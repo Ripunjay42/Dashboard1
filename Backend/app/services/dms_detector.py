@@ -370,19 +370,49 @@ class DMSStreamManager:
     
     def _video_stream_loop(self):
         """
-        THREAD 1: FAST Video Streaming - SMOOTH LAG-FREE
-        Only captures, applies overlay, and encodes. NO AI processing here.
+        THREAD 1: FAST Video Streaming - SMOOTH LAG-FREE with FPS throttling
+        
+        Supports both MJPEG and WebRTC streaming:
+        - MJPEG: Traditional HTTP streaming (fallback)
+        - WebRTC: Modern, low-latency streaming (preferred)
         """
         frame_counter = 0
         last_gc = time.time()
         
+        # Try to get WebRTC track for this stream
+        webrtc_track = None
+        try:
+            from app.services.webrtc_service import get_webrtc_manager, is_webrtc_available
+            if is_webrtc_available():
+                manager = get_webrtc_manager()
+                webrtc_track = manager.create_track('dms', fps=20)
+                print("✓ WebRTC track created for DMS detection")
+        except Exception as e:
+            print(f"⚠️ WebRTC not available, using MJPEG fallback: {e}")
+        
+        # FPS throttling to prevent browser lag on Jetson
+        target_fps = 15 if self.is_jetson else 25  # Lower FPS for Jetson browser
+        target_frame_time = 1.0 / target_fps
+        
+        # Optimized encoding settings for Jetson
+        if self.is_jetson:
+            encode_size = (360, 270)    # Smaller for browser memory
+            encode_quality = 45          # Lower quality for faster encoding
+            gc_interval = 15             # More frequent GC on Jetson
+        else:
+            encode_size = (480, 360)
+            encode_quality = 60
+            gc_interval = 30
+        
         while self.is_running:
+            frame_start = time.time()
+            
             if not self.cap or not self.cap.isOpened():
                 break
             
             # Periodic garbage collection
             current_time = time.time()
-            if current_time - last_gc > 30.0:
+            if current_time - last_gc > gc_interval:
                 gc.collect()
                 last_gc = current_time
             
@@ -419,13 +449,18 @@ class DMSStreamManager:
                 cv2.putText(display_frame, "Initializing DMS...", (20, 40), 
                            cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 0), 2)
             
-            # Resize for streaming
-            frame_resized = cv2.resize(display_frame, self.frame_size, 
+            # Push to WebRTC track (if available) - FULL RESOLUTION for WebRTC
+            if webrtc_track is not None:
+                webrtc_frame = cv2.resize(display_frame, (640, 480), interpolation=cv2.INTER_AREA)
+                webrtc_track.update_frame(webrtc_frame)
+            
+            # Resize for streaming (use optimized size for MJPEG)
+            frame_resized = cv2.resize(display_frame, encode_size, 
                                        interpolation=cv2.INTER_AREA)
             
-            # Fast JPEG encoding
+            # Fast JPEG encoding with optimized quality (for MJPEG fallback)
             encode_param = [
-                cv2.IMWRITE_JPEG_QUALITY, self.jpeg_quality,
+                cv2.IMWRITE_JPEG_QUALITY, encode_quality,
                 cv2.IMWRITE_JPEG_OPTIMIZE, 1
             ]
             ret_enc, buffer = cv2.imencode('.jpg', frame_resized, encode_param)
@@ -435,6 +470,12 @@ class DMSStreamManager:
                     self.encoded_frame = buffer.tobytes()
             
             del frame, display_frame, frame_resized
+            
+            # FPS throttling - sleep to maintain target FPS
+            elapsed = time.time() - frame_start
+            sleep_time = target_frame_time - elapsed
+            if sleep_time > 0:
+                time.sleep(sleep_time)
     
     def _ai_inference_loop(self):
         """

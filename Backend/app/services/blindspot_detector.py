@@ -712,10 +712,29 @@ class DualCameraManager:
         return True
     
     def _left_video_loop(self):
-        """Left camera video thread - SMOOTH LAG-FREE FOR JETSON"""
+        """Left camera video thread - SMOOTH LAG-FREE FOR JETSON with WebRTC support"""
         frame_counter = 0
+        last_gc = time.time()
+        
+        # Try to get WebRTC track for this stream
+        webrtc_track = None
+        try:
+            from app.services.webrtc_service import get_webrtc_manager, is_webrtc_available
+            if is_webrtc_available():
+                manager = get_webrtc_manager()
+                webrtc_track = manager.create_track('blindspot_left', fps=20)
+                print("✓ WebRTC track created for left blind spot")
+        except Exception as e:
+            print(f"⚠️ WebRTC not available for left blindspot: {e}")
+        
+        # FPS throttling to prevent browser lag on Jetson
+        target_fps = 15 if self.is_jetson else 25  # Lower FPS for Jetson browser
+        target_frame_time = 1.0 / target_fps
+        last_frame_time = time.time()
         
         while self.running:
+            frame_start = time.time()
+            
             if not self.left_cap or not self.left_cap.isOpened():
                 time.sleep(0.01)
                 continue
@@ -751,10 +770,15 @@ class DualCameraManager:
             color = (0, 0, 255) if danger else (0, 255, 0)
             self.detector.draw_side_mirror_grid(frame, color, is_left=True)
             
-            # Optimized Jetson encoding - good balance of size/quality
+            # Push to WebRTC track (if available) - higher resolution for WebRTC
+            if webrtc_track is not None:
+                webrtc_frame = cv2.resize(frame, (640, 360), interpolation=cv2.INTER_AREA)
+                webrtc_track.update_frame(webrtc_frame)
+            
+            # Optimized Jetson encoding - lower resolution to reduce browser memory (MJPEG)
             if self.is_jetson:
-                encode_size = (400, 225)   # Reasonable size
-                encode_quality = 50        # Lower quality for faster encoding on Jetson
+                encode_size = (320, 180)   # Smaller for browser memory (was 400x225)
+                encode_quality = 45        # Lower quality for faster encoding on Jetson
             else:
                 encode_size = (400, 225)
                 encode_quality = 60
@@ -774,12 +798,44 @@ class DualCameraManager:
                 del buffer
             
             del frame
+            
+            # FPS throttling - sleep to maintain target FPS
+            elapsed = time.time() - frame_start
+            sleep_time = target_frame_time - elapsed
+            if sleep_time > 0:
+                time.sleep(sleep_time)
+            
+            # Periodic garbage collection (more frequent on Jetson)
+            current_time = time.time()
+            gc_interval = 15 if self.is_jetson else 30
+            if current_time - last_gc > gc_interval:
+                gc.collect()
+                last_gc = current_time
     
     def _right_video_loop(self):
-        """Right camera video thread - SMOOTH LAG-FREE FOR JETSON"""
+        """Right camera video thread - SMOOTH LAG-FREE FOR JETSON with FPS throttling"""
         frame_counter = 0
+        last_gc = time.time()
+        
+        # Try to get WebRTC track for this stream
+        webrtc_track = None
+        try:
+            from app.services.webrtc_service import get_webrtc_manager, is_webrtc_available
+            if is_webrtc_available():
+                manager = get_webrtc_manager()
+                webrtc_track = manager.create_track('blindspot_right', fps=20)
+                print("✓ WebRTC track created for right blind spot")
+        except Exception as e:
+            print(f"⚠️ WebRTC not available for right blindspot: {e}")
+        
+        # FPS throttling to prevent browser lag on Jetson
+        target_fps = 15 if self.is_jetson else 25  # Lower FPS for Jetson browser
+        target_frame_time = 1.0 / target_fps
+        last_frame_time = time.time()
         
         while self.running:
+            frame_start = time.time()
+            
             if not self.right_cap or not self.right_cap.isOpened():
                 time.sleep(0.01)
                 continue
@@ -815,10 +871,15 @@ class DualCameraManager:
             color = (0, 0, 255) if danger else (0, 255, 0)
             self.detector.draw_side_mirror_grid(frame, color, is_left=False)
             
-            # Optimized Jetson encoding - good balance of size/quality
+            # Push to WebRTC track (if available) - higher resolution for WebRTC
+            if webrtc_track is not None:
+                webrtc_frame = cv2.resize(frame, (640, 360), interpolation=cv2.INTER_AREA)
+                webrtc_track.update_frame(webrtc_frame)
+            
+            # Optimized Jetson encoding - lower resolution to reduce browser memory (MJPEG)
             if self.is_jetson:
-                encode_size = (400, 225)   # Reasonable size
-                encode_quality = 50        # Lower quality for faster encoding on Jetson
+                encode_size = (320, 180)   # Smaller for browser memory (was 400x225)
+                encode_quality = 45        # Lower quality for faster encoding on Jetson
             else:
                 encode_size = (400, 225)
                 encode_quality = 60
@@ -838,6 +899,19 @@ class DualCameraManager:
                 del buffer
             
             del frame
+            
+            # FPS throttling - sleep to maintain target FPS
+            elapsed = time.time() - frame_start
+            sleep_time = target_frame_time - elapsed
+            if sleep_time > 0:
+                time.sleep(sleep_time)
+            
+            # Periodic garbage collection (more frequent on Jetson)
+            current_time = time.time()
+            gc_interval = 15 if self.is_jetson else 30
+            if current_time - last_gc > gc_interval:
+                gc.collect()
+                last_gc = current_time
     
     def _left_ai_loop(self):
         """Left AI thread - MEMORY LEAK PREVENTION & CPU OPTIMIZED"""
