@@ -163,6 +163,23 @@ const Dashboard = ({ onSelectUseCase }) => {
     };
   }, [activeFeature]);
 
+  // BROWSER REFRESH/CLOSE: Send cleanup beacon to stop all cameras
+  useEffect(() => {
+    const handleBeforeUnload = () => {
+      // Use sendBeacon for reliable delivery even during page unload
+      const API_BASE = 'http://localhost:5000/api';
+      navigator.sendBeacon(`${API_BASE}/cleanup/force`);
+      console.log('🔄 Browser refresh/close - sent cleanup beacon');
+    };
+
+    // Listen for page unload (refresh, close, navigate away)
+    window.addEventListener('beforeunload', handleBeforeUnload);
+
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+    };
+  }, []);
+
   // Throttle effect - increase speed while holding, decrease when released
   // Battery drains slightly when driving fast
   // ONLY active when NOT using MQTT control
