@@ -366,10 +366,9 @@ const Dashboard = ({ onSelectUseCase }) => {
       const currentFeature = activeFeature;
       setIsSwitching(true);
       
-      // Stop previous feature FIRST before switching UI
-      if (currentFeature) {
-        await stopActiveFeature(currentFeature);
-      }
+      // Stop ALL cameras and cleanup (not just the active feature)
+      // This ensures complete camera release for pothole, blindspot, AND dms
+      await stopAllCamerasAndCleanup();
       
       // Now switch UI
       setActiveFeature(null);
