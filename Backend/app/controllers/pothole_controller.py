@@ -16,14 +16,18 @@ def initialize_stream(model_path, camera_id):
 def start_detection(model_path, camera_id):
     """Start the pothole detection stream"""
     try:
+        import time
         manager = initialize_stream(model_path, camera_id)
         if manager.is_active():
-            return {'status': 'success', 'message': 'Stream already running'}
+            return {'status': 'error', 'message': 'Detection already running'}, 400
+        
+        # JETSON: Small delay after previous cleanup to ensure camera release
+        time.sleep(0.5)
         
         if manager.start():
             return {'status': 'success', 'message': 'Detection started'}
         else:
-            return {'status': 'error', 'message': 'Failed to open camera'}, 500
+            return {'status': 'error', 'message': 'Failed to start stream'}, 500
     except Exception as e:
         return {'status': 'error', 'message': str(e)}, 500
 
@@ -31,9 +35,33 @@ def start_detection(model_path, camera_id):
 def stop_detection():
     """Stop the pothole detection stream and reset manager for clean restart"""
     global video_manager
+    import gc
+    import torch
+    from app.services.camera_manager import release_camera_lock, cleanup_all_cameras
+    
     if video_manager is not None:
+        print("🧹 CLEANUP: Stopping pothole detection with aggressive cleanup...")
         video_manager.stop()
         video_manager = None  # Reset for fresh initialization on next start
+        
+        # JETSON: Force release camera lock
+        release_camera_lock('pothole')
+        cleanup_all_cameras()
+        
+        # Unload pothole model from memory
+        from app.services.pothole_detector import unload_global_detector
+        unload_global_detector()
+        
+        # JETSON: Clear CUDA cache if available
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+            torch.cuda.synchronize()
+        
+        # JETSON: Aggressive garbage collection (3 passes)
+        for i in range(3):
+            gc.collect()
+        
+        print("✅ CLEANUP: Pothole cleanup complete")
         return {'status': 'success', 'message': 'Detection stopped'}
     return {'status': 'success', 'message': 'Detection was not running'}
 

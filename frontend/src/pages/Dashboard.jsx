@@ -363,6 +363,10 @@ const Dashboard = ({ onSelectUseCase }) => {
       if (onSelectUseCase) {
         onSelectUseCase(null);
       }
+      
+      // REFRESH PAGE for fresh start
+      console.log('🔄 Refreshing page for fresh start...');
+      window.location.reload();
       return;
     }
     
@@ -372,6 +376,12 @@ const Dashboard = ({ onSelectUseCase }) => {
     // If switching to a different feature, stop the current one first
     if (activeFeature && activeFeature !== featureId) {
       await stopActiveFeature(activeFeature);
+      
+      // JETSON: Extra delay after stop to ensure complete cleanup
+      // Longer delay for blindspot due to dual cameras
+      const delay = featureId === 'blindspot' ? 1200 : 800;
+      console.log(`⏳ Waiting ${delay}ms for cleanup to complete...`);
+      await new Promise(resolve => setTimeout(resolve, delay));
     }
     
     // Set the new active feature

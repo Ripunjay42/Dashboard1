@@ -369,6 +369,23 @@ def get_global_detector(model_path):
     return _global_detector
 
 
+def unload_global_detector():
+    """Unload the global detector instance to free memory"""
+    global _global_detector
+    with _detector_lock:
+        if _global_detector is not None:
+            print("🗑️ Unloading pothole detection model from memory...")
+            # Clear model from memory
+            del _global_detector
+            _global_detector = None
+            # Force garbage collection
+            gc.collect()
+            # Clear CUDA cache if available
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+            print("✅ Pothole model unloaded")
+
+
 def get_camera_pipeline(camera_id=0):
     """
     Get optimized camera pipeline based on platform

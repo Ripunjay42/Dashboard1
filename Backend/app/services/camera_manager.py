@@ -139,12 +139,16 @@ def cleanup_all_cameras():
     
     print("🧹 Emergency camera cleanup...")
     
-    # Try to release lock if held
+    # Only try to release lock if it's actually held
     try:
-        _active_service = None
-        _camera_lock.release()
-    except:
-        pass
+        if _camera_lock.locked():
+            _active_service = None
+            _camera_lock.release()
+            print("🔓 Emergency: Camera lock released")
+        else:
+            print("ℹ️ Camera lock already released")
+    except RuntimeError:
+        print("⚠️ Lock release failed in emergency cleanup (already released)")
     
     # Force garbage collection
     gc.collect()

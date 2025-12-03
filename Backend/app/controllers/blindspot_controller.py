@@ -16,18 +16,22 @@ def initialize_cameras(left_cam_id=0, right_cam_id=1):
 def start_detection(left_cam_id=0, right_cam_id=1):
     """Start the blind spot detection"""
     try:
+        import time
         manager = initialize_cameras(left_cam_id, right_cam_id)
         if manager.is_active():
-            return {'status': 'success', 'message': 'Detection already running'}
+            return {'status': 'error', 'message': 'Detection already running'}, 400
+        
+        # JETSON: Longer delay for dual cameras to ensure both are released
+        time.sleep(1.0)  # 1 second for dual camera setup
         
         # Load detector model first (singleton, fast if already loaded)
         from app.services.blindspot_detector import get_global_detector
         get_global_detector()
         
         if manager.start():
-            return {'status': 'success', 'message': 'Blind spot detection started'}
+            return {'status': 'success', 'message': 'Detection started'}
         else:
-            return {'status': 'error', 'message': 'Failed to open cameras'}, 500
+            return {'status': 'error', 'message': 'Failed to start detection'}, 500
     except Exception as e:
         return {'status': 'error', 'message': str(e)}, 500
 
@@ -35,9 +39,29 @@ def start_detection(left_cam_id=0, right_cam_id=1):
 def stop_detection():
     """Stop the blind spot detection and reset manager for clean restart"""
     global camera_manager
+    import gc
+    import torch
+    from app.services.camera_manager import release_camera_lock, cleanup_all_cameras
+    
     if camera_manager is not None:
+        print("🧹 CLEANUP: Stopping blindspot detection with aggressive cleanup...")
         camera_manager.stop()
         camera_manager = None  # Reset for fresh initialization on next start
+        
+        # JETSON: Force release camera lock
+        release_camera_lock('blindspot')
+        cleanup_all_cameras()
+        
+        # JETSON: Clear CUDA cache if available
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+            torch.cuda.synchronize()
+        
+        # JETSON: Aggressive garbage collection (3 passes)
+        for i in range(3):
+            gc.collect()
+        
+        print("✅ CLEANUP: Blindspot cleanup complete")
         return {'status': 'success', 'message': 'Detection stopped'}
     return {'status': 'success', 'message': 'Detection was not running'}
 

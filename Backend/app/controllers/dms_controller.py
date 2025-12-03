@@ -16,9 +16,13 @@ def initialize_stream(camera_id):
 def start_detection(camera_id):
     """Start the DMS detection stream"""
     try:
+        import time
         manager = initialize_stream(camera_id)
         if manager.is_active():
             return {'status': 'success', 'message': 'DMS already running'}
+        
+        # JETSON: Small delay after previous cleanup to ensure camera release
+        time.sleep(0.5)
         
         if manager.start():
             return {'status': 'success', 'message': 'DMS detection started'}
@@ -31,11 +35,31 @@ def start_detection(camera_id):
 def stop_detection():
     """Stop the DMS detection stream and reset manager for clean restart"""
     global dms_manager
+    import gc
+    import torch
+    from app.services.camera_manager import release_camera_lock, cleanup_all_cameras
+    
     if dms_manager is not None:
+        print("🧹 CLEANUP: Stopping DMS detection with aggressive cleanup...")
         dms_manager.stop()
         dms_manager = None  # Reset for fresh initialization on next start
-        return {'status': 'success', 'message': 'DMS detection stopped'}
-    return {'status': 'success', 'message': 'DMS was not running'}
+        
+        # JETSON: Force release camera lock
+        release_camera_lock('dms')
+        cleanup_all_cameras()
+        
+        # JETSON: Clear CUDA cache if available
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+            torch.cuda.synchronize()
+        
+        # JETSON: Aggressive garbage collection (3 passes)
+        for i in range(3):
+            gc.collect()
+        
+        print("✅ CLEANUP: DMS cleanup complete")
+        return {'status': 'success', 'message': 'Detection stopped'}
+    return {'status': 'success', 'message': 'Detection was not running'}
 
 
 def get_stream_status():
