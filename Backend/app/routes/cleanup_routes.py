@@ -8,8 +8,10 @@ cleanup_bp = Blueprint('cleanup', __name__)
 def force_cleanup():
     """
     Force garbage collection and camera cleanup.
-    Called when user clicks home button to free resources.
+    Called when user clicks home button or browser refresh to free resources.
     """
+    print("🧹 Force cleanup requested - stopping all services...")
+    
     try:
         # Import camera manager for emergency cleanup
         from app.services.camera_manager import cleanup_all_cameras
@@ -22,23 +24,38 @@ def force_cleanup():
         # Stop pothole detection
         try:
             pothole_controller.stop_detection()
+            print("  ✓ Pothole stopped")
         except Exception as e:
-            print(f"Pothole cleanup error: {e}")
+            print(f"  ✗ Pothole cleanup error: {e}")
         
         # Stop blindspot detection
         try:
             blindspot_controller.stop_detection()
+            print("  ✓ Blindspot stopped")
         except Exception as e:
-            print(f"Blindspot cleanup error: {e}")
+            print(f"  ✗ Blindspot cleanup error: {e}")
         
         # Stop DMS detection
         try:
             dms_controller.stop_detection()
+            print("  ✓ DMS stopped")
         except Exception as e:
-            print(f"DMS cleanup error: {e}")
+            print(f"  ✗ DMS cleanup error: {e}")
+        
+        # Stop MQTT service if running
+        try:
+            from app.services.mqtt_service import get_mqtt_service, reset_mqtt_service
+            mqtt = get_mqtt_service()
+            if mqtt and mqtt.running:
+                mqtt.stop()
+                reset_mqtt_service()
+                print("  ✓ MQTT stopped")
+        except Exception as e:
+            print(f"  ✗ MQTT cleanup error: {e}")
         
         # Emergency camera cleanup
         cleanup_all_cameras()
+        print("  ✓ Camera manager cleaned")
         
         # Force garbage collection (3 passes for thorough cleanup)
         collected = []
@@ -51,8 +68,11 @@ def force_cleanup():
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
                 torch.cuda.synchronize()
+                print("  ✓ CUDA cache cleared")
         except:
             pass
+        
+        print(f"✓ Force cleanup complete - {sum(collected)} objects collected")
         
         return jsonify({
             'status': 'success',
@@ -61,6 +81,7 @@ def force_cleanup():
         })
     
     except Exception as e:
+        print(f"✗ Force cleanup error: {e}")
         return jsonify({
             'status': 'error',
             'message': str(e)
