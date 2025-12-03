@@ -714,11 +714,23 @@ class DualCameraManager:
     def _left_video_loop(self):
         """Left camera video thread - SMOOTH LAG-FREE FOR JETSON"""
         frame_counter = 0
+        last_gc = time.time()
         
         while self.running:
             if not self.left_cap or not self.left_cap.isOpened():
                 time.sleep(0.01)
                 continue
+            
+            # Quick check for stop signal
+            if not self.running:
+                break
+            
+            # Periodic garbage collection
+            current_time = time.time()
+            if current_time - last_gc > 10.0:
+                gc.collect()
+                last_gc = current_time
+                print(f"🗑️ Blindspot Left: GC performed (frame {frame_counter})")
             
             # SMOOTH APPROACH: Always grab twice - first discards buffered, second is fresh
             # This prevents lag WITHOUT causing stutter
@@ -747,6 +759,11 @@ class DualCameraManager:
                 self.left_latest_frame = frame.copy()
                 danger = self.left_danger
             
+            # Quick check for stop signal before heavy operations
+            if not self.running:
+                del frame
+                break
+            
             # Draw grid overlay
             color = (0, 0, 255) if danger else (0, 255, 0)
             self.detector.draw_side_mirror_grid(frame, color, is_left=True)
@@ -764,25 +781,37 @@ class DualCameraManager:
                                               [cv2.IMWRITE_JPEG_QUALITY, encode_quality,
                                                cv2.IMWRITE_JPEG_OPTIMIZE, 1])  # Fast encoding
             
-            del frame_resized
+            del frame, frame_resized  # Clean up immediately
             
             if ret_encode:
+                frame_bytes = buffer.tobytes()
+                del buffer  # Free buffer immediately
+                
                 with self.left_lock:
                     if self.left_encoded is not None:
                         del self.left_encoded
-                    self.left_encoded = buffer.tobytes()
-                del buffer
-            
-            del frame
+                    self.left_encoded = frame_bytes
     
     def _right_video_loop(self):
         """Right camera video thread - SMOOTH LAG-FREE FOR JETSON"""
         frame_counter = 0
+        last_gc = time.time()
         
         while self.running:
             if not self.right_cap or not self.right_cap.isOpened():
                 time.sleep(0.01)
                 continue
+            
+            # Quick check for stop signal
+            if not self.running:
+                break
+            
+            # Periodic garbage collection
+            current_time = time.time()
+            if current_time - last_gc > 10.0:
+                gc.collect()
+                last_gc = current_time
+                print(f"🗑️ Blindspot Right: GC performed (frame {frame_counter})")
             
             # SMOOTH APPROACH: Always grab twice - first discards buffered, second is fresh
             # This prevents lag WITHOUT causing stutter
@@ -811,6 +840,11 @@ class DualCameraManager:
                 self.right_latest_frame = frame.copy()
                 danger = self.right_danger
             
+            # Quick check for stop signal before heavy operations
+            if not self.running:
+                del frame
+                break
+            
             # Draw grid overlay
             color = (0, 0, 255) if danger else (0, 255, 0)
             self.detector.draw_side_mirror_grid(frame, color, is_left=False)
@@ -828,16 +862,16 @@ class DualCameraManager:
                                               [cv2.IMWRITE_JPEG_QUALITY, encode_quality,
                                                cv2.IMWRITE_JPEG_OPTIMIZE, 1])  # Fast encoding
             
-            del frame_resized
+            del frame, frame_resized  # Clean up immediately
             
             if ret_encode:
+                frame_bytes = buffer.tobytes()
+                del buffer  # Free buffer immediately
+                
                 with self.right_lock:
                     if self.right_encoded is not None:
                         del self.right_encoded
-                    self.right_encoded = buffer.tobytes()
-                del buffer
-            
-            del frame
+                    self.right_encoded = frame_bytes
     
     def _left_ai_loop(self):
         """Left AI thread - MEMORY LEAK PREVENTION & CPU OPTIMIZED"""
@@ -845,11 +879,19 @@ class DualCameraManager:
         last_gc = time.time()
         
         while self.running:
+            # Quick exit check at start of each iteration
+            if not self.running:
+                break
+                
             # Frame skipping for CPU (process every 3rd frame = 10 FPS AI)
             frame_counter += 1
             if frame_counter % 3 != 0:
                 time.sleep(0.02)  # Small delay when skipping
                 continue
+            
+            # Check again after sleep
+            if not self.running:
+                break
             
             # Periodic garbage collection to prevent memory accumulation (more frequent on Jetson)
             current_time = time.time()
@@ -868,13 +910,22 @@ class DualCameraManager:
             # Get latest frame
             with self.left_lock:
                 if self.left_latest_frame is None:
-                    time.sleep(0.01)
-                    continue
-                # Process smaller frame for maximum speed (320x180 for CPU)
-                frame_small = cv2.resize(self.left_latest_frame, (YOLO_INPUT_W, YOLO_INPUT_H), 
-                                       interpolation=cv2.INTER_LINEAR)
+                    pass  # Will sleep below
+                else:
+                    # Process smaller frame for maximum speed (320x180 for CPU)
+                    frame_small = cv2.resize(self.left_latest_frame, (YOLO_INPUT_W, YOLO_INPUT_H), 
+                                           interpolation=cv2.INTER_LINEAR)
+            
+            if self.left_latest_frame is None:
+                time.sleep(0.01)
+                continue
             
             try:
+                # Quick exit check before heavy AI operation
+                if not self.running:
+                    del frame_small
+                    break
+                    
                 # Run AI detection (ultra fast on small frame)
                 danger, detected_vehicles = self.detector.process_frame_fast(frame_small, is_left=True)
                 
@@ -900,11 +951,19 @@ class DualCameraManager:
         last_gc = time.time()
         
         while self.running:
+            # Quick exit check at start of each iteration
+            if not self.running:
+                break
+                
             # Frame skipping for CPU (process every 3rd frame = 10 FPS AI)
             frame_counter += 1
             if frame_counter % 3 != 0:
                 time.sleep(0.02)  # Small delay when skipping
                 continue
+            
+            # Check again after sleep
+            if not self.running:
+                break
             
             # Periodic garbage collection to prevent memory accumulation (more frequent on Jetson)
             current_time = time.time()
@@ -923,13 +982,22 @@ class DualCameraManager:
             # Get latest frame
             with self.right_lock:
                 if self.right_latest_frame is None:
-                    time.sleep(0.01)
-                    continue
-                # Process smaller frame for maximum speed (320x180 for CPU)
-                frame_small = cv2.resize(self.right_latest_frame, (YOLO_INPUT_W, YOLO_INPUT_H), 
-                                       interpolation=cv2.INTER_LINEAR)
+                    pass  # Will sleep below
+                else:
+                    # Process smaller frame for maximum speed (320x180 for CPU)
+                    frame_small = cv2.resize(self.right_latest_frame, (YOLO_INPUT_W, YOLO_INPUT_H), 
+                                           interpolation=cv2.INTER_LINEAR)
+            
+            if self.right_latest_frame is None:
+                time.sleep(0.01)
+                continue
             
             try:
+                # Quick exit check before heavy AI operation
+                if not self.running:
+                    del frame_small
+                    break
+                    
                 # Run AI detection (ultra fast on small frame)
                 danger, detected_vehicles = self.detector.process_frame_fast(frame_small, is_left=False)
                 
@@ -972,39 +1040,65 @@ class DualCameraManager:
     def stop(self):
         """Stop dual camera blind spot detection - ROBUST cleanup for Jetson"""
         print("🛑 Stopping blind spot detection...")
+        
+        # Signal threads to stop FIRST (before any other cleanup)
         self.running = False
         self.active = False
         
-        # Wait for threads to notice the stop flag
-        time.sleep(0.15)
-        
         # Import camera manager for proper cleanup
         from app.services.camera_manager import force_release_camera, release_camera_lock
+        
+        # Wait for threads to notice the stop flag and exit gracefully
+        thread_timeout = 1.0 if self.is_jetson else 0.5  # Longer timeout on Jetson
+        
+        threads = [
+            ('left_video', self.left_video_thread),
+            ('left_ai', self.left_ai_thread),
+            ('right_video', self.right_video_thread),
+            ('right_ai', self.right_ai_thread)
+        ]
+        
+        for name, thread in threads:
+            if thread is not None and thread.is_alive():
+                thread.join(timeout=thread_timeout)
+                if thread.is_alive():
+                    print(f"⚠️ Thread {name} did not stop gracefully")
+        
+        # Clear threads references
+        self.left_video_thread = None
+        self.left_ai_thread = None
+        self.right_video_thread = None
+        self.right_ai_thread = None
         
         # Release cameras with proper Jetson cleanup
         if self.left_cap:
             force_release_camera(self.left_cap, "blindspot-left")
             self.left_cap = None
-        if self.right_cap:
+        if self.right_cap and self.right_cap != self.left_cap:  # Only release if different
             force_release_camera(self.right_cap, "blindspot-right")
-            self.right_cap = None
+        self.right_cap = None
         
         # Release camera lock
         release_camera_lock("blindspot")
         
         # Clear buffers
         with self.left_lock:
-            self.left_frame = None
             self.left_latest_frame = None
+            self.left_encoded = None
             self.left_danger = False
         with self.right_lock:
-            self.right_frame = None
             self.right_latest_frame = None
+            self.right_encoded = None
             self.right_danger = False
         
         # Force garbage collection on Jetson
+        gc.collect()
+        if self.is_jetson and torch.cuda.is_available():
+            torch.cuda.empty_cache()
+        
+        # Additional delay on Jetson for camera driver to fully release
         if self.is_jetson:
-            gc.collect()
+            time.sleep(0.2)
         
         print("✓ Blind spot detection stopped")
     

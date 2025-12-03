@@ -7,6 +7,7 @@ const PotholeDetector = ({ onBack }) => {
   const [error, setError] = useState(null);
   const [potholeDetected, setPotholeDetected] = useState(false);
   const statusIntervalRef = useRef(null);
+  const imgRef = useRef(null);
   const API_URL = 'http://localhost:5000/api/pothole';
   const hasStartedRef = useRef(false);
 
@@ -19,11 +20,18 @@ const PotholeDetector = ({ onBack }) => {
     
     // Cleanup on unmount
     return () => {
-      if (isActive) {
-        stopDetection();
+      // Clear stream FIRST to release browser connection
+      if (imgRef.current) {
+        imgRef.current.src = '';
       }
+      
       if (statusIntervalRef.current) {
         clearInterval(statusIntervalRef.current);
+      }
+      
+      // Then stop detection on backend
+      if (isActive) {
+        stopDetection();
       }
     };
   }, []);
@@ -82,6 +90,15 @@ const PotholeDetector = ({ onBack }) => {
   };
 
   const stopDetection = async () => {
+    // Clear image source FIRST to release browser HTTP connection
+    // This prevents browser hang on Jetson when switching tabs
+    if (imgRef.current) {
+      imgRef.current.src = '';
+    }
+    
+    // Small delay to ensure browser releases connection
+    await new Promise(resolve => setTimeout(resolve, 100));
+    
     try {
       await fetch(`${API_URL}/stop`, {
         method: 'POST',
@@ -128,6 +145,7 @@ const PotholeDetector = ({ onBack }) => {
         {!loading && !error && (
           <>
             <img
+              ref={imgRef}
               src={`${API_URL}/video_feed`}
               alt="Pothole Detection Feed"
               className="max-w-full max-h-full object-contain"

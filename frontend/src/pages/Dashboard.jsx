@@ -248,34 +248,124 @@ const Dashboard = ({ onSelectUseCase }) => {
     
     try {
       let response;
-      if (currentFeature === 'pothole') {
-        console.log('Stopping pothole detection...');
-        response = await fetch(`${API_BASE}/pothole/stop`, { method: 'POST' });
-      } else if (currentFeature === 'blindspot') {
-        console.log('Stopping blind spot detection...');
-        response = await fetch(`${API_BASE}/blindspot/stop`, { method: 'POST' });
-      } else if (currentFeature === 'dms') {
-        console.log('Stopping DMS detection...');
-        response = await fetch(`${API_BASE}/dms/stop`, { method: 'POST' });
+      
+      // Use AbortController with timeout to prevent hanging on slow stop
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 3000); // 3 second timeout
+      
+      try {
+        if (currentFeature === 'pothole') {
+          console.log('Stopping pothole detection...');
+          response = await fetch(`${API_BASE}/pothole/stop`, { 
+            method: 'POST',
+            signal: controller.signal
+          });
+        } else if (currentFeature === 'blindspot') {
+          console.log('Stopping blind spot detection...');
+          response = await fetch(`${API_BASE}/blindspot/stop`, { 
+            method: 'POST',
+            signal: controller.signal
+          });
+        } else if (currentFeature === 'dms') {
+          console.log('Stopping DMS detection...');
+          response = await fetch(`${API_BASE}/dms/stop`, { 
+            method: 'POST',
+            signal: controller.signal
+          });
+        }
+        clearTimeout(timeoutId);
+      } catch (abortError) {
+        console.log(`${currentFeature} stop request timed out or aborted`);
+        clearTimeout(timeoutId);
       }
       
       // Wait for response to confirm stop is complete
       if (response) {
-        await response.json();
+        try {
+          await response.json();
+        } catch (e) {
+          // Ignore JSON parse errors on aborted requests
+        }
       }
       
       // Longer delay on Jetson to ensure camera is fully released
       // This prevents "camera busy" errors when switching
-      await new Promise(resolve => setTimeout(resolve, 300));
+      await new Promise(resolve => setTimeout(resolve, 500));
       console.log(`✓ ${currentFeature} stopped and camera released`);
     } catch (error) {
       console.error(`Error stopping ${currentFeature}:`, error);
       // Even on error, wait a bit before trying to open new camera
-      await new Promise(resolve => setTimeout(resolve, 200));
+      await new Promise(resolve => setTimeout(resolve, 300));
+    }
+  };
+
+  // Stop ALL cameras and trigger garbage collection when going home
+  const stopAllCamerasAndCleanup = async () => {
+    const API_BASE = 'http://localhost:5000/api';
+    console.log('🏠 Home button clicked - stopping all cameras and cleaning up...');
+    
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 second timeout
+    
+    try {
+      // Call the dedicated cleanup endpoint that stops all cameras and forces GC
+      const response = await fetch(`${API_BASE}/cleanup/force`, { 
+        method: 'POST',
+        signal: controller.signal
+      });
+      
+      clearTimeout(timeoutId);
+      
+      if (response.ok) {
+        const result = await response.json();
+        console.log('✓ Cleanup result:', result);
+      }
+      
+      // Additional delay for complete cleanup on Jetson
+      await new Promise(resolve => setTimeout(resolve, 500));
+      
+      console.log('✓ All cameras stopped and cleaned up');
+    } catch (error) {
+      console.error('Error during cleanup:', error);
+      clearTimeout(timeoutId);
+      
+      // Fallback: try individual stops
+      const stopPromises = [];
+      
+      stopPromises.push(
+        fetch(`${API_BASE}/pothole/stop`, { method: 'POST' })
+          .catch(err => console.log('Pothole stop:', err.message))
+      );
+      
+      stopPromises.push(
+        fetch(`${API_BASE}/blindspot/stop`, { method: 'POST' })
+          .catch(err => console.log('Blindspot stop:', err.message))
+      );
+      
+      stopPromises.push(
+        fetch(`${API_BASE}/dms/stop`, { method: 'POST' })
+          .catch(err => console.log('DMS stop:', err.message))
+      );
+      
+      await Promise.allSettled(stopPromises);
+      await new Promise(resolve => setTimeout(resolve, 500));
     }
   };
 
   const handleFeatureClick = async (featureId) => {
+    // If clicking home button (featureId === null)
+    if (featureId === null) {
+      // Stop ALL cameras and cleanup before going home
+      if (activeFeature) {
+        await stopAllCamerasAndCleanup();
+      }
+      setActiveFeature(null);
+      if (onSelectUseCase) {
+        onSelectUseCase(null);
+      }
+      return;
+    }
+    
     // If clicking the same feature, do nothing
     if (activeFeature === featureId) return;
     
@@ -300,12 +390,6 @@ const Dashboard = ({ onSelectUseCase }) => {
       setActiveFeature('dms');
       if (onSelectUseCase) {
         onSelectUseCase('dms');
-      }
-    } else if (featureId === null) {
-      // Home button clicked - go back to main view
-      setActiveFeature(null);
-      if (onSelectUseCase) {
-        onSelectUseCase(null);
       }
     }
   };

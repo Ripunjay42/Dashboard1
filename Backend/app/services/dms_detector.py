@@ -380,11 +380,16 @@ class DMSStreamManager:
             if not self.cap or not self.cap.isOpened():
                 break
             
-            # Periodic garbage collection
+            # Quick check for stop signal
+            if not self.is_running:
+                break
+            
+            # More frequent garbage collection to prevent memory buildup
             current_time = time.time()
-            if current_time - last_gc > 30.0:
+            if current_time - last_gc > 10.0:  # More frequent on Jetson
                 gc.collect()
                 last_gc = current_time
+                print(f"🗑️ DMS: GC performed (frame {frame_counter})")
             
             # SMOOTH APPROACH: Double grab - first discards buffered, second is fresh
             self.cap.grab()  # Discard potentially stale frame
@@ -410,6 +415,11 @@ class DMSStreamManager:
                 ear = self.ear_value
                 yawn = self.yawn_value
             
+            # Quick check for stop signal before heavy operations
+            if not self.is_running:
+                del frame
+                break
+            
             # Apply overlay from AI thread (if available)
             if current_overlay is not None:
                 display_frame = current_overlay.copy()
@@ -430,11 +440,18 @@ class DMSStreamManager:
             ]
             ret_enc, buffer = cv2.imencode('.jpg', frame_resized, encode_param)
             
-            if ret_enc:
-                with self.lock:
-                    self.encoded_frame = buffer.tobytes()
-            
+            # Clean up frames immediately
             del frame, display_frame, frame_resized
+            
+            if ret_enc:
+                frame_bytes = buffer.tobytes()
+                del buffer  # Free buffer immediately
+                
+                with self.lock:
+                    # Delete old encoded frame before replacing
+                    if self.encoded_frame is not None:
+                        del self.encoded_frame
+                    self.encoded_frame = frame_bytes
     
     def _ai_inference_loop(self):
         """
@@ -442,12 +459,24 @@ class DMSStreamManager:
         Processes frames and updates overlay/status without blocking video
         """
         while self.is_running:
+            # Quick exit check at start of each iteration
+            if not self.is_running:
+                break
+                
             # Get latest frame copy (non-blocking)
+            frame = None
             with self.lock:
-                if self.latest_frame is None:
-                    time.sleep(0.01)
-                    continue
-                frame = self.latest_frame.copy()
+                if self.latest_frame is not None:
+                    frame = self.latest_frame.copy()
+            
+            if frame is None:
+                time.sleep(0.01)
+                continue
+            
+            # Quick exit check before heavy AI operation
+            if not self.is_running:
+                del frame
+                break
             
             # Process frame with DMS detector (MediaPipe)
             processed_frame, is_drowsy, is_yawning, ear, yawn = self.detector.process_frame(frame)
@@ -507,13 +536,15 @@ class DMSStreamManager:
     def stop(self):
         """Stop DMS detection - ROBUST cleanup for Jetson"""
         print("🛑 Stopping DMS detection...")
-        self.is_running = False
         
-        # Wait for threads to notice the stop flag
-        time.sleep(0.15)
+        # Signal threads to stop FIRST
+        self.is_running = False
         
         # Import camera manager for proper cleanup
         from app.services.camera_manager import force_release_camera, release_camera_lock
+        
+        # Wait for threads to notice the stop flag and exit gracefully
+        time.sleep(0.3 if self.is_jetson else 0.15)
         
         # Release camera with proper Jetson cleanup
         if self.cap is not None:
@@ -535,9 +566,12 @@ class DMSStreamManager:
             self.drowsy_alert_active = False
             self.yawn_alert_active = False
         
-        # Force garbage collection on Jetson
+        # Force garbage collection
+        gc.collect()
+        
+        # Additional delay on Jetson for camera driver to fully release
         if self.is_jetson:
-            gc.collect()
+            time.sleep(0.2)
         
         print("✓ DMS detection stopped")
     

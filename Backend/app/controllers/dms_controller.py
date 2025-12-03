@@ -75,15 +75,39 @@ def get_stream_status():
 
 
 def generate_frames():
-    """Generator function for video streaming"""
+    """Generator function for video streaming - JETSON OPTIMIZED"""
     global dms_manager
+    import time
+    
     if dms_manager is None or not dms_manager.is_active():
         return
     
-    while dms_manager.is_active():
+    consecutive_failures = 0
+    max_failures = 30  # After ~1 second of failures, exit gracefully
+    last_frame_time = time.time()
+    frame_timeout = 5.0  # Exit if no new frame for 5 seconds
+    
+    while True:
+        # Check if manager is still active (quick exit on stop)
+        if dms_manager is None or not dms_manager.is_active():
+            break
+        
+        # Check for frame timeout (feed stuck)
+        if time.time() - last_frame_time > frame_timeout:
+            print("⚠️ DMS feed timeout - no new frames")
+            break
+            
         frame_bytes = dms_manager.get_encoded_frame()
         if frame_bytes is None:
+            consecutive_failures += 1
+            if consecutive_failures > max_failures:
+                # Too many failures, exit to prevent browser hang
+                break
+            time.sleep(0.033)  # ~30fps rate limiting, prevents CPU spin
             continue
+        
+        consecutive_failures = 0  # Reset on success
+        last_frame_time = time.time()  # Update last frame time
         
         yield (b'--frame\r\n'
                b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')

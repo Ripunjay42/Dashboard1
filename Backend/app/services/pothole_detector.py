@@ -632,13 +632,18 @@ class VideoStreamManager:
             if not self.cap or not self.cap.isOpened():
                 break
             
-            # Periodic garbage collection to prevent memory buildup
+            # Quick check for stop signal
+            if not self.is_running:
+                break
+            
+            # More frequent garbage collection to prevent memory buildup (every 10 seconds)
             current_time = time.time()
-            if current_time - last_gc > 30.0:  # Every 30 seconds
+            if current_time - last_gc > 10.0:  # More frequent on Jetson
                 gc.collect()
                 if hasattr(self.detector, 'device') and self.detector.device == 'cuda':
                     torch.cuda.empty_cache()
                 last_gc = current_time
+                print(f"🗑️ Pothole: GC performed (frame {frame_counter})")
             
             # SMOOTH APPROACH: Always grab twice - first discards buffered, second is fresh
             # This prevents lag WITHOUT causing stutter
@@ -661,6 +666,11 @@ class VideoStreamManager:
                 self.latest_frame = frame.copy()
                 current_mask = self.current_mask
             
+            # Quick check for stop signal before heavy operations
+            if not self.is_running:
+                del frame
+                break
+            
             # Apply overlay immediately if we have detection
             if current_mask is not None:
                 color_mask = np.zeros_like(frame)
@@ -680,9 +690,18 @@ class VideoStreamManager:
             ]
             ret, buffer = cv2.imencode('.jpg', overlay_frame, encode_param)
             
+            # Clean up overlay_frame immediately
+            del overlay_frame
+            
             if ret:
+                frame_bytes = buffer.tobytes()
+                del buffer  # Free buffer immediately
+                
                 with self.lock:
-                    self.encoded_frame = buffer.tobytes()
+                    # Delete old encoded frame before replacing
+                    if self.encoded_frame is not None:
+                        del self.encoded_frame
+                    self.encoded_frame = frame_bytes
     
     def _ai_inference_loop(self):
         """
@@ -690,22 +709,37 @@ class VideoStreamManager:
         Optimized for absolute minimum latency
         """
         while self.is_running:
+            # Quick exit check at start of each iteration
+            if not self.is_running:
+                break
+                
             # Get latest frame copy (non-blocking)
+            frame_small = None
+            original_h, original_w = 0, 0
+            
             with self.lock:
                 if self.latest_frame is None:
-                    time.sleep(0.005)
-                    continue
-                
-                # Adaptive resize based on device (CUDA vs CPU)
-                if hasattr(self.detector, 'device') and self.detector.device == 'cuda':
-                    # CUDA MODE: Can handle larger frames for better quality!
-                    frame_small = cv2.resize(self.latest_frame, (320, 240), interpolation=cv2.INTER_LINEAR)
+                    pass  # Will sleep below
                 else:
-                    # CPU MODE: Keep small for speed
-                    frame_small = cv2.resize(self.latest_frame, (160, 120), interpolation=cv2.INTER_LINEAR)
-                
-                # CRITICAL: Store original dimensions inside lock to prevent race condition
-                original_h, original_w = self.latest_frame.shape[:2]
+                    # Adaptive resize based on device (CUDA vs CPU)
+                    if hasattr(self.detector, 'device') and self.detector.device == 'cuda':
+                        # CUDA MODE: Can handle larger frames for better quality!
+                        frame_small = cv2.resize(self.latest_frame, (320, 240), interpolation=cv2.INTER_LINEAR)
+                    else:
+                        # CPU MODE: Keep small for speed
+                        frame_small = cv2.resize(self.latest_frame, (160, 120), interpolation=cv2.INTER_LINEAR)
+                    
+                    # CRITICAL: Store original dimensions inside lock to prevent race condition
+                    original_h, original_w = self.latest_frame.shape[:2]
+            
+            if frame_small is None:
+                time.sleep(0.005)
+                continue
+            
+            # Quick exit check before heavy AI operation
+            if not self.is_running:
+                del frame_small
+                break
             
             # Run AI inference immediately (GPU accelerated if CUDA available!)
             mask = self.detector.detect(frame_small)
@@ -769,13 +803,16 @@ class VideoStreamManager:
     def stop(self):
         """Stop both video and AI threads - ROBUST cleanup for Jetson"""
         print("🛑 Stopping pothole detection...")
-        self.is_running = False
         
-        # Wait for threads to notice the stop flag
-        time.sleep(0.15)
+        # Signal threads to stop FIRST
+        self.is_running = False
         
         # Import camera manager for proper cleanup
         from app.services.camera_manager import force_release_camera, release_camera_lock
+        
+        # Wait for threads to notice the stop flag and exit gracefully
+        is_jetson = hasattr(self.detector, 'is_jetson') and self.detector.is_jetson
+        time.sleep(0.3 if is_jetson else 0.15)
         
         # Release camera with proper Jetson cleanup
         if self.cap is not None:
@@ -798,10 +835,13 @@ class VideoStreamManager:
         self.frames_since_detection = 0
         
         # Force garbage collection on Jetson
-        if hasattr(self.detector, 'is_jetson') and self.detector.is_jetson:
-            gc.collect()
-            if hasattr(self.detector, 'device') and self.detector.device == 'cuda':
-                torch.cuda.empty_cache()
+        gc.collect()
+        if hasattr(self.detector, 'device') and self.detector.device == 'cuda':
+            torch.cuda.empty_cache()
+        
+        # Additional delay on Jetson for camera driver to fully release
+        if is_jetson:
+            time.sleep(0.2)
         
         print("✓ Pothole detection stopped")
     

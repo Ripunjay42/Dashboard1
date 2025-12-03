@@ -56,16 +56,40 @@ def get_stream_status():
 
 
 def generate_frames():
-    """Generator function for video streaming - optimized for smooth playback"""
+    """Generator function for video streaming - JETSON OPTIMIZED"""
     global video_manager
+    import time
+    
     if video_manager is None or not video_manager.is_active():
         return
     
-    while video_manager.is_active():
+    consecutive_failures = 0
+    max_failures = 30  # After ~1 second of failures, exit gracefully
+    last_frame_time = time.time()
+    frame_timeout = 5.0  # Exit if no new frame for 5 seconds
+    
+    while True:
+        # Check if manager is still active (quick exit on stop)
+        if video_manager is None or not video_manager.is_active():
+            break
+        
+        # Check for frame timeout (feed stuck)
+        if time.time() - last_frame_time > frame_timeout:
+            print("⚠️ Pothole feed timeout - no new frames")
+            break
+            
         # Get pre-encoded frame for better performance
         frame_bytes = video_manager.get_encoded_frame()
         if frame_bytes is None:
+            consecutive_failures += 1
+            if consecutive_failures > max_failures:
+                # Too many failures, exit to prevent browser hang
+                break
+            time.sleep(0.033)  # ~30fps rate limiting, prevents CPU spin
             continue
+        
+        consecutive_failures = 0  # Reset on success
+        last_frame_time = time.time()  # Update last frame time
         
         # Stream the pre-encoded frame
         yield (b'--frame\r\n'

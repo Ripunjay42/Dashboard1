@@ -8,6 +8,8 @@ const BlindSpotDetector = ({ onBack }) => {
   const [leftDanger, setLeftDanger] = useState(false);
   const [rightDanger, setRightDanger] = useState(false);
   const statusIntervalRef = useRef(null);
+  const leftImgRef = useRef(null);
+  const rightImgRef = useRef(null);
   const API_URL = 'http://localhost:5000/api/blindspot';
   const hasStartedRef = useRef(false);
 
@@ -20,11 +22,21 @@ const BlindSpotDetector = ({ onBack }) => {
     
     // Cleanup on unmount
     return () => {
-      if (isActive) {
-        stopDetection();
+      // Clear streams FIRST to release browser connections
+      if (leftImgRef.current) {
+        leftImgRef.current.src = '';
       }
+      if (rightImgRef.current) {
+        rightImgRef.current.src = '';
+      }
+      
       if (statusIntervalRef.current) {
         clearInterval(statusIntervalRef.current);
+      }
+      
+      // Then stop detection on backend
+      if (isActive) {
+        stopDetection();
       }
     };
   }, []);
@@ -84,6 +96,18 @@ const BlindSpotDetector = ({ onBack }) => {
   };
 
   const stopDetection = async () => {
+    // Clear image sources FIRST to release browser HTTP connections
+    // This prevents browser hang on Jetson when switching tabs
+    if (leftImgRef.current) {
+      leftImgRef.current.src = '';
+    }
+    if (rightImgRef.current) {
+      rightImgRef.current.src = '';
+    }
+    
+    // Small delay to ensure browser releases connections
+    await new Promise(resolve => setTimeout(resolve, 100));
+    
     try {
       await fetch(`${API_URL}/stop`, {
         method: 'POST',
@@ -135,6 +159,7 @@ const BlindSpotDetector = ({ onBack }) => {
                 <span className="text-white text-sm font-bold">LEFT MIRROR</span>
               </div>
               <img
+                ref={leftImgRef}
                 src={`${API_URL}/left_feed`}
                 alt="Left Blind Spot Feed"
                 className="w-full h-full object-contain"
@@ -158,6 +183,7 @@ const BlindSpotDetector = ({ onBack }) => {
                 <span className="text-white text-sm font-bold">RIGHT MIRROR</span>
               </div>
               <img
+                ref={rightImgRef}
                 src={`${API_URL}/right_feed`}
                 alt="Right Blind Spot Feed"
                 className="w-full h-full object-contain"
