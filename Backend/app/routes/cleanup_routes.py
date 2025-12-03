@@ -42,16 +42,8 @@ def force_cleanup():
         except Exception as e:
             print(f"  ✗ DMS cleanup error: {e}")
         
-        # Stop MQTT service if running
-        try:
-            from app.services.mqtt_service import get_mqtt_service, reset_mqtt_service
-            mqtt = get_mqtt_service()
-            if mqtt and mqtt.running:
-                mqtt.stop()
-                reset_mqtt_service()
-                print("  ✓ MQTT stopped")
-        except Exception as e:
-            print(f"  ✗ MQTT cleanup error: {e}")
+        # NOTE: MQTT service is NOT stopped during cleanup
+        # It should keep running for dashboard controls
         
         # Emergency camera cleanup
         cleanup_all_cameras()
