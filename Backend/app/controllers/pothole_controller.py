@@ -37,16 +37,15 @@ def stop_detection():
     global video_manager
     import gc
     import torch
-    from app.services.camera_manager import release_camera_lock, cleanup_all_cameras
     
     if video_manager is not None:
         print("🧹 CLEANUP: Stopping pothole detection with aggressive cleanup...")
-        video_manager.stop()
+        video_manager.stop()  # This handles camera release and lock release internally
         video_manager = None  # Reset for fresh initialization on next start
         
-        # JETSON: Force release camera lock
-        release_camera_lock('pothole')
-        cleanup_all_cameras()
+        # NOTE: Don't call release_camera_lock or cleanup_all_cameras here!
+        # VideoStreamManager.stop() already handles this properly.
+        # Double-releasing corrupts the lock state and breaks subsequent starts.
         
         # Unload pothole model from memory
         from app.services.pothole_detector import unload_global_detector

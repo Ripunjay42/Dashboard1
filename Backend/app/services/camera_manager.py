@@ -15,6 +15,7 @@ import cv2
 # fighting over camera resources
 _camera_lock = threading.Lock()
 _active_service = None  # Track which service is using cameras
+_lock_holder_lock = threading.Lock()  # Protect _active_service reads/writes
 
 # Detect Jetson
 IS_JETSON = os.path.exists('/etc/nv_tegra_release')
@@ -35,10 +36,13 @@ def acquire_camera_lock(service_name, timeout=5.0):
     
     acquired = _camera_lock.acquire(timeout=timeout)
     if acquired:
-        _active_service = service_name
+        with _lock_holder_lock:
+            _active_service = service_name
         print(f"🔒 Camera lock acquired by: {service_name}")
     else:
-        print(f"⚠️ Failed to acquire camera lock for {service_name} (held by {_active_service})")
+        with _lock_holder_lock:
+            current_holder = _active_service
+        print(f"⚠️ Failed to acquire camera lock for {service_name} (held by {current_holder})")
     
     return acquired
 
@@ -46,22 +50,31 @@ def acquire_camera_lock(service_name, timeout=5.0):
 def release_camera_lock(service_name):
     """
     Release the global camera lock after closing cameras.
+    This is idempotent - safe to call multiple times.
     
     Args:
         service_name: Name of the service releasing cameras
     """
     global _active_service
     
-    try:
-        if _active_service == service_name:
+    with _lock_holder_lock:
+        current_holder = _active_service
+        
+        # Only release if this service holds the lock
+        if current_holder == service_name:
             _active_service = None
-            _camera_lock.release()
-            print(f"🔓 Camera lock released by: {service_name}")
+            try:
+                _camera_lock.release()
+                print(f"🔓 Camera lock released by: {service_name}")
+            except RuntimeError:
+                # Lock wasn't held - shouldn't happen but handle gracefully
+                print(f"⚠️ Lock already released when {service_name} tried to release")
+        elif current_holder is None:
+            # Lock already released - this is OK (idempotent)
+            pass
         else:
-            print(f"⚠️ {service_name} tried to release lock held by {_active_service}")
-    except RuntimeError:
-        # Lock wasn't held
-        pass
+            # Different service holds the lock - this is a bug
+            print(f"⚠️ {service_name} tried to release lock held by {current_holder}")
 
 
 def force_release_camera(cap, service_name="unknown"):
@@ -134,21 +147,32 @@ def cleanup_all_cameras():
     """
     Emergency cleanup - release all camera resources.
     Call this if switching gets stuck.
+    This is idempotent - safe to call multiple times.
     """
     global _active_service
     
     print("🧹 Emergency camera cleanup...")
     
-    # Only try to release lock if it's actually held
-    try:
-        if _camera_lock.locked():
+    # Safely release the lock if held
+    with _lock_holder_lock:
+        if _active_service is not None:
+            previous_holder = _active_service
             _active_service = None
-            _camera_lock.release()
-            print("🔓 Emergency: Camera lock released")
+            try:
+                _camera_lock.release()
+                print(f"🔓 Emergency: Camera lock released (was held by {previous_holder})")
+            except RuntimeError:
+                print("⚠️ Lock release failed in emergency cleanup (already released)")
         else:
-            print("ℹ️ Camera lock already released")
-    except RuntimeError:
-        print("⚠️ Lock release failed in emergency cleanup (already released)")
+            # Check if lock is held without _active_service being set (corrupted state)
+            if _camera_lock.locked():
+                try:
+                    _camera_lock.release()
+                    print("🔓 Emergency: Released orphaned camera lock")
+                except RuntimeError:
+                    pass
+            else:
+                print("ℹ️ Camera lock already released")
     
     # Force garbage collection
     gc.collect()

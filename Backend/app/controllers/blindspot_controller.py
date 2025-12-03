@@ -48,16 +48,15 @@ def stop_detection():
     global camera_manager
     import gc
     import torch
-    from app.services.camera_manager import release_camera_lock, cleanup_all_cameras
     
     if camera_manager is not None:
         print("🧹 CLEANUP: Stopping blindspot detection with aggressive cleanup...")
-        camera_manager.stop()
+        camera_manager.stop()  # This handles camera release and lock release internally
         camera_manager = None  # Reset for fresh initialization on next start
         
-        # JETSON: Force release camera lock
-        release_camera_lock('blindspot')
-        cleanup_all_cameras()
+        # NOTE: Don't call release_camera_lock or cleanup_all_cameras here!
+        # DualCameraManager.stop() already handles this properly.
+        # Double-releasing corrupts the lock state and breaks subsequent starts.
         
         # JETSON: Clear CUDA cache if available
         if torch.cuda.is_available():

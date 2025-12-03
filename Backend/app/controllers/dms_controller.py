@@ -37,16 +37,15 @@ def stop_detection():
     global dms_manager
     import gc
     import torch
-    from app.services.camera_manager import release_camera_lock, cleanup_all_cameras
     
     if dms_manager is not None:
         print("🧹 CLEANUP: Stopping DMS detection with aggressive cleanup...")
-        dms_manager.stop()
+        dms_manager.stop()  # This handles camera release and lock release internally
         dms_manager = None  # Reset for fresh initialization on next start
         
-        # JETSON: Force release camera lock (done in dms_manager.stop())
-        # Don't call cleanup_all_cameras() here - it causes double release
-        # The lock was already released in dms_manager.stop()
+        # NOTE: Don't call release_camera_lock or cleanup_all_cameras here!
+        # DMSStreamManager.stop() already handles this properly.
+        # Double-releasing corrupts the lock state and breaks subsequent starts.
         
         # JETSON: Clear CUDA cache if available
         if torch.cuda.is_available():

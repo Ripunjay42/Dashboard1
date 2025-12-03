@@ -14,7 +14,6 @@ const Dashboard = ({ onSelectUseCase }) => {
   const [selectedCategory, setSelectedCategory] = useState(null);
   const [activeTab, setActiveTab] = useState('home');
   const [activeFeature, setActiveFeature] = useState(null); // Track which feature is active
-  const [isTransitioning, setIsTransitioning] = useState(false); // Loading state during feature switch
   const [speed, setSpeed] = useState(0);
   const [battery, setBattery] = useState(100); // Battery percentage (0-100) - Start at full charge
   const [isThrottling, setIsThrottling] = useState(false);
@@ -356,21 +355,22 @@ const Dashboard = ({ onSelectUseCase }) => {
   const handleFeatureClick = async (featureId) => {
     // If clicking home button (featureId === null)
     if (featureId === null) {
-      setIsTransitioning(true);
-      // Stop ALL cameras and cleanup before going home
-      if (activeFeature) {
-        await stopAllCamerasAndCleanup();
-      }
+      // INSTANT switch - no loading spinner
+      const previousFeature = activeFeature;
+      setActiveFeature(null);
       
       // Reset all states for fresh start (no browser refresh)
-      setActiveFeature(null);
       setSpeed(0);
       setBattery(100);
       setLeftTurnActive(false);
       setRightTurnActive(false);
       setPirAlert(0);
       setTripDistance(1000);
-      setIsTransitioning(false);
+      
+      // Background cleanup: Stop all cameras after UI has switched
+      if (previousFeature) {
+        stopAllCamerasAndCleanup();
+      }
       
       if (onSelectUseCase) {
         onSelectUseCase(null);
@@ -381,31 +381,18 @@ const Dashboard = ({ onSelectUseCase }) => {
     // If clicking the same feature, do nothing
     if (activeFeature === featureId) return;
     
-    // If switching to a different feature, stop the current one first
-    if (activeFeature && activeFeature !== featureId) {
-      // INSTANT UI SWITCH: Set new feature immediately for responsive feel
-      setActiveFeature(featureId);
-      setIsTransitioning(true);
-      
-      if (onSelectUseCase) {
-        onSelectUseCase(featureId);
-      }
-      
-      // Background cleanup: Stop previous feature
-      await stopActiveFeature(activeFeature);
-      
-      // JETSON: Extra delay after stop to ensure complete cleanup
-      // Longer delay for blindspot due to dual cameras
-      const delay = featureId === 'blindspot' ? 1500 : 800;
-      console.log(`⏳ Waiting ${delay}ms for cleanup to complete...`);
-      await new Promise(resolve => setTimeout(resolve, delay));
-      setIsTransitioning(false);
-    } else {
-      // First time opening a feature (no previous feature to stop)
-      setActiveFeature(featureId);
-      if (onSelectUseCase) {
-        onSelectUseCase(featureId);
-      }
+    // INSTANT UI SWITCH: Set new feature immediately for responsive feel
+    const previousFeature = activeFeature;
+    setActiveFeature(featureId);
+    
+    if (onSelectUseCase) {
+      onSelectUseCase(featureId);
+    }
+    
+    // Background cleanup: Stop previous feature without blocking UI
+    if (previousFeature) {
+      // Fire and forget - don't await, let it run in background
+      stopActiveFeature(previousFeature);
     }
   };
 
@@ -453,16 +440,6 @@ const Dashboard = ({ onSelectUseCase }) => {
                   <div className="bg-gray-900/90 backdrop-blur-sm border-4 border-gray-700 rounded-3xl overflow-hidden p-2 shadow-2xl w-full" style={{ minHeight: '352px', height: '528px', maxWidth: '990px' }}>
                   <div className="h-full w-full">
                     <div className="bg-gray-900 border-2 rounded-2xl h-full w-full overflow-hidden relative">
-                      {/* Loading Overlay */}
-                      {isTransitioning && (
-                        <div className="absolute inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center">
-                          <div className="flex flex-col items-center gap-4">
-                            <div className="w-16 h-16 border-4 border-cyan-500 border-t-transparent rounded-full animate-spin"></div>
-                            <p className="text-cyan-400 text-lg font-semibold">Loading...</p>
-                          </div>
-                        </div>
-                      )}
-                      
                       {/* Show Pothole Detection when active */}
                       {activeFeature === 'pothole' ? (
                         <PotholeDetector onBack={async () => {
