@@ -398,8 +398,8 @@ const Dashboard = ({ onSelectUseCase }) => {
         onSelectUseCase(null);
       }
       
-      // Fire-and-forget: cleanup happens in background, UI already switched
-      stopAllCamerasAndCleanup().catch(err => console.error('Cleanup error:', err));
+      // Note: Cleanup is already sent via beacon in FeatureBar.jsx
+      // No need to call stopAllCamerasAndCleanup() here - it causes double cleanup
       
       // Allow next switch after brief delay
       setTimeout(() => setIsSwitching(false), 200);
