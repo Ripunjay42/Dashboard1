@@ -10,12 +10,16 @@ const DMSDetector = ({ onBack }) => {
   const [isYawning, setIsYawning] = useState(false);
   const [earValue, setEarValue] = useState(0);
   const [yawnValue, setYawnValue] = useState(0);
+  const [feedKey, setFeedKey] = useState(Date.now()); // Cache buster for video feed
   const statusIntervalRef = useRef(null);
   const imgRef = useRef(null);
   const API_URL = 'http://localhost:5000/api/dms';
   const hasStartedRef = useRef(false);
+  const isMountedRef = useRef(true); // Track if component is still mounted
 
   useEffect(() => {
+    isMountedRef.current = true;
+    
     // Start detection only once when component mounts
     if (!hasStartedRef.current) {
       hasStartedRef.current = true;
@@ -24,6 +28,8 @@ const DMSDetector = ({ onBack }) => {
     
     // Cleanup on unmount
     return () => {
+      isMountedRef.current = false;
+      
       // Clear stream FIRST to release browser connection
       if (imgRef.current) {
         imgRef.current.src = '';
@@ -31,12 +37,11 @@ const DMSDetector = ({ onBack }) => {
       
       if (statusIntervalRef.current) {
         clearInterval(statusIntervalRef.current);
+        statusIntervalRef.current = null;
       }
       
-      // Then stop detection on backend
-      if (isActive) {
-        stopDetection();
-      }
+      // Stop detection on backend (fire and forget - Dashboard handles proper cleanup)
+      fetch(`${API_URL}/stop`, { method: 'POST' }).catch(() => {});
     };
   }, []);
 
@@ -80,13 +85,18 @@ const DMSDetector = ({ onBack }) => {
       
       const data = await response.json();
       
+      if (!isMountedRef.current) return; // Component unmounted during fetch
+      
       if (response.ok && data.status === 'success') {
+        // Generate new cache key to force fresh feed connection
+        setFeedKey(Date.now());
         setIsActive(true);
         setLoading(false);
       } else {
         throw new Error(data.message || 'Failed to start DMS');
       }
     } catch (err) {
+      if (!isMountedRef.current) return;
       console.error('DMS start error:', err);
       setError(err.message);
       setLoading(false);
@@ -151,10 +161,11 @@ const DMSDetector = ({ onBack }) => {
           <>
             <img
               ref={imgRef}
-              src={`${API_URL}/video_feed`}
+              src={`${API_URL}/video_feed?t=${feedKey}`}
               alt="DMS Detection Feed"
               className="max-w-full max-h-full object-contain"
               style={{ display: 'block' }}
+              onError={(e) => console.error('DMS feed error:', e)}
             />
             
             {/* Drowsiness Alert Overlay */}

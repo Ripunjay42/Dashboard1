@@ -6,12 +6,16 @@ const PotholeDetector = ({ onBack }) => {
   const [loadingMessage, setLoadingMessage] = useState('Initializing camera...');
   const [error, setError] = useState(null);
   const [potholeDetected, setPotholeDetected] = useState(false);
+  const [feedKey, setFeedKey] = useState(Date.now()); // Cache buster for video feed
   const statusIntervalRef = useRef(null);
   const imgRef = useRef(null);
   const API_URL = 'http://localhost:5000/api/pothole';
   const hasStartedRef = useRef(false);
+  const isMountedRef = useRef(true); // Track if component is still mounted
 
   useEffect(() => {
+    isMountedRef.current = true;
+    
     // Start detection only once when component mounts
     if (!hasStartedRef.current) {
       hasStartedRef.current = true;
@@ -20,6 +24,8 @@ const PotholeDetector = ({ onBack }) => {
     
     // Cleanup on unmount
     return () => {
+      isMountedRef.current = false;
+      
       // Clear stream FIRST to release browser connection
       if (imgRef.current) {
         imgRef.current.src = '';
@@ -27,12 +33,11 @@ const PotholeDetector = ({ onBack }) => {
       
       if (statusIntervalRef.current) {
         clearInterval(statusIntervalRef.current);
+        statusIntervalRef.current = null;
       }
       
-      // Then stop detection on backend
-      if (isActive) {
-        stopDetection();
-      }
+      // Stop detection on backend (fire and forget - Dashboard handles proper cleanup)
+      fetch(`${API_URL}/stop`, { method: 'POST' }).catch(() => {});
     };
   }, []);
 
@@ -73,7 +78,11 @@ const PotholeDetector = ({ onBack }) => {
       });
       const data = await response.json();
       
+      if (!isMountedRef.current) return; // Component unmounted during fetch
+      
       if (data.status === 'success') {
+        // Generate new cache key to force fresh feed connection
+        setFeedKey(Date.now());
         setIsActive(true);
         setLoading(false);
         setLoadingMessage('');
@@ -83,6 +92,7 @@ const PotholeDetector = ({ onBack }) => {
         setLoadingMessage('');
       }
     } catch (err) {
+      if (!isMountedRef.current) return;
       setError('Error connecting to server. Please try again.');
       setLoading(false);
       setLoadingMessage('');
@@ -146,10 +156,11 @@ const PotholeDetector = ({ onBack }) => {
           <>
             <img
               ref={imgRef}
-              src={`${API_URL}/video_feed`}
+              src={`${API_URL}/video_feed?t=${feedKey}`}
               alt="Pothole Detection Feed"
               className="max-w-full max-h-full object-contain"
               style={{ display: 'block' }}
+              onError={(e) => console.error('Pothole feed error:', e)}
             />
             
             {/* Pothole Detection Alert Overlay */}

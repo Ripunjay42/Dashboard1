@@ -13,8 +13,11 @@ const BlindSpotDetector = ({ onBack }) => {
   const rightImgRef = useRef(null);
   const API_URL = 'http://localhost:5000/api/blindspot';
   const hasStartedRef = useRef(false);
+  const isMountedRef = useRef(true); // Track if component is still mounted
 
   useEffect(() => {
+    isMountedRef.current = true;
+    
     // Start detection only once when component mounts
     if (!hasStartedRef.current) {
       hasStartedRef.current = true;
@@ -23,6 +26,8 @@ const BlindSpotDetector = ({ onBack }) => {
     
     // Cleanup on unmount
     return () => {
+      isMountedRef.current = false;
+      
       // Clear streams FIRST to release browser connections
       if (leftImgRef.current) {
         leftImgRef.current.src = '';
@@ -35,10 +40,8 @@ const BlindSpotDetector = ({ onBack }) => {
         clearInterval(statusIntervalRef.current);
       }
       
-      // Then stop detection on backend
-      if (isActive) {
-        stopDetection();
-      }
+      // Fire-and-forget stop - Dashboard handles proper cleanup
+      fetch(`${API_URL}/stop`, { method: 'POST' }).catch(() => {});
     };
   }, []);
 
@@ -82,16 +85,21 @@ const BlindSpotDetector = ({ onBack }) => {
       const data = await response.json();
       
       if (data.status === 'success') {
+        // Only update state if still mounted
+        if (!isMountedRef.current) return;
+        
         // Generate new cache key to force fresh feed connections
         setFeedKey(Date.now());
         setIsActive(true);
         setLoading(false);
         setLoadingMessage('');
       } else {
+        if (!isMountedRef.current) return;
         setError(data.message || 'Failed to start detection');
         setLoading(false);
       }
     } catch (err) {
+      if (!isMountedRef.current) return;
       setError('Error connecting to server. Please try again.');
       setLoading(false);
       setLoadingMessage('');

@@ -363,8 +363,14 @@ const Dashboard = ({ onSelectUseCase }) => {
     // If clicking home button (featureId === null)
     if (featureId === null) {
       const previousFeature = activeFeature;
+      setIsSwitching(true);
       
-      // INSTANT switch - no loading spinner
+      // Stop previous feature FIRST before switching UI
+      if (previousFeature) {
+        await stopActiveFeature(previousFeature);
+      }
+      
+      // Now switch UI
       setActiveFeature(null);
       
       // Reset all states for fresh start (no browser refresh)
@@ -375,37 +381,47 @@ const Dashboard = ({ onSelectUseCase }) => {
       setPirAlert(0);
       setTripDistance(1000);
       
-      // Background cleanup: Stop all cameras after UI has switched
-      if (previousFeature) {
-        setIsSwitching(true);
-        stopAllCamerasAndCleanup().finally(() => setIsSwitching(false));
-      }
-      
       if (onSelectUseCase) {
         onSelectUseCase(null);
       }
+      
+      // Allow next switch after brief delay
+      setTimeout(() => setIsSwitching(false), 200);
       return;
     }
     
     // If clicking the same feature, do nothing
     if (activeFeature === featureId) return;
     
-    // INSTANT UI SWITCH: Set new feature immediately for responsive feel
     const previousFeature = activeFeature;
-    setActiveFeature(featureId);
     setIsSwitching(true);
+    
+    // IMPORTANT: Stop previous feature COMPLETELY before starting new one
+    // This prevents camera conflicts on Jetson
+    if (previousFeature) {
+      // First, set activeFeature to null to unmount the component
+      // This releases the browser's MJPEG connection
+      setActiveFeature(null);
+      
+      // Wait a frame for React to unmount the component
+      await new Promise(resolve => setTimeout(resolve, 50));
+      
+      // Now stop the backend service
+      await stopActiveFeature(previousFeature);
+      
+      // Additional delay to ensure camera is fully released
+      await new Promise(resolve => setTimeout(resolve, 200));
+    }
+    
+    // Now set new feature and allow new component to mount
+    setActiveFeature(featureId);
     
     if (onSelectUseCase) {
       onSelectUseCase(featureId);
     }
     
-    // Sequential cleanup: Stop previous feature first, then allow new one to start
-    if (previousFeature) {
-      await stopActiveFeature(previousFeature);
-    }
-    
-    // Small delay before allowing next switch to prevent rapid clicks
-    setTimeout(() => setIsSwitching(false), 300);
+    // Allow next switch after the new feature starts loading
+    setTimeout(() => setIsSwitching(false), 500);
   };
 
   return (
