@@ -44,9 +44,9 @@ def stop_detection():
         dms_manager.stop()
         dms_manager = None  # Reset for fresh initialization on next start
         
-        # JETSON: Force release camera lock
-        release_camera_lock('dms')
-        cleanup_all_cameras()
+        # JETSON: Force release camera lock (done in dms_manager.stop())
+        # Don't call cleanup_all_cameras() here - it causes double release
+        # The lock was already released in dms_manager.stop()
         
         # JETSON: Clear CUDA cache if available
         if torch.cuda.is_available():

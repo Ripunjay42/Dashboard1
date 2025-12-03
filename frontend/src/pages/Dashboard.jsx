@@ -383,33 +383,28 @@ const Dashboard = ({ onSelectUseCase }) => {
     
     // If switching to a different feature, stop the current one first
     if (activeFeature && activeFeature !== featureId) {
+      // INSTANT UI SWITCH: Set new feature immediately for responsive feel
+      setActiveFeature(featureId);
       setIsTransitioning(true);
+      
+      if (onSelectUseCase) {
+        onSelectUseCase(featureId);
+      }
+      
+      // Background cleanup: Stop previous feature
       await stopActiveFeature(activeFeature);
       
       // JETSON: Extra delay after stop to ensure complete cleanup
       // Longer delay for blindspot due to dual cameras
-      const delay = featureId === 'blindspot' ? 1200 : 800;
+      const delay = featureId === 'blindspot' ? 1500 : 800;
       console.log(`⏳ Waiting ${delay}ms for cleanup to complete...`);
       await new Promise(resolve => setTimeout(resolve, delay));
       setIsTransitioning(false);
-    }
-    
-    // Set the new active feature
-    if (featureId === 'pothole') {
-      setActiveFeature('pothole');
-      // Also call the parent's onSelectUseCase if needed
+    } else {
+      // First time opening a feature (no previous feature to stop)
+      setActiveFeature(featureId);
       if (onSelectUseCase) {
-        onSelectUseCase('pothole');
-      }
-    } else if (featureId === 'blindspot') {
-      setActiveFeature('blindspot');
-      if (onSelectUseCase) {
-        onSelectUseCase('blindspot');
-      }
-    } else if (featureId === 'dms') {
-      setActiveFeature('dms');
-      if (onSelectUseCase) {
-        onSelectUseCase('dms');
+        onSelectUseCase(featureId);
       }
     }
   };

@@ -17,12 +17,19 @@ def start_detection(left_cam_id=0, right_cam_id=1):
     """Start the blind spot detection"""
     try:
         import time
+        from app.services.camera_manager import acquire_camera_lock
+        
         manager = initialize_cameras(left_cam_id, right_cam_id)
         if manager.is_active():
             return {'status': 'error', 'message': 'Detection already running'}, 400
         
-        # JETSON: Longer delay for dual cameras to ensure both are released
-        time.sleep(1.0)  # 1 second for dual camera setup
+        # JETSON: Acquire camera lock FIRST to prevent race conditions
+        if not acquire_camera_lock('blindspot', timeout=5.0):
+            return {'status': 'error', 'message': 'Failed to acquire camera lock (another service is using cameras)'}, 503
+        
+        # JETSON: Wait for cameras to be fully released by previous service
+        # This prevents "camera already in use" errors on dual cameras
+        time.sleep(1.2)  # Increased delay for dual camera initialization
         
         # Load detector model first (singleton, fast if already loaded)
         from app.services.blindspot_detector import get_global_detector
