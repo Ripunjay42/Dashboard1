@@ -5,6 +5,8 @@ import { IoShieldCheckmark } from 'react-icons/io5';
 import { FaCar, FaTruck, FaBus } from 'react-icons/fa';
 import ConfigDropdown from './ConfigDropdown';
 
+const API_BASE = 'http://localhost:5000/api';
+
 const FeatureBar = ({ activeFeature, onFeatureClick }) => {
 
 
@@ -57,6 +59,9 @@ const FeatureBar = ({ activeFeature, onFeatureClick }) => {
   };
 
   const handleHomeClick = () => {
+    // Send cleanup beacon to stop all cameras
+    navigator.sendBeacon(`${API_BASE}/cleanup/force`);
+    console.log('🏠 Home clicked - sent cleanup beacon');
     onFeatureClick(null); // Go to home/main page
   };
 
