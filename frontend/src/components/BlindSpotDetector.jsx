@@ -74,14 +74,17 @@ const BlindSpotDetector = ({ onBack }) => {
     };
   }, [isActive]);
 
-  const startDetection = async () => {
+  const startDetection = async (cameraMode = 'left') => {
     setLoading(true);
     setError(null);
     try {
       setLoadingMessage('Starting blind spot detection...');
       
+      // Pass camera mode to backend - only opens one camera for less Jetson load
       const response = await fetch(`${API_URL}/start`, {
         method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ camera: cameraMode })
       });
       const data = await response.json();
       
@@ -132,19 +135,42 @@ const BlindSpotDetector = ({ onBack }) => {
     }
   };
 
-  // Handle view mode change - clear unused feed to reduce load
-  const handleViewModeChange = (newMode) => {
-    // Clear the feed that's being hidden to release browser connection
-    if (newMode === 'left' && rightImgRef.current) {
-      rightImgRef.current.src = '';
-    } else if (newMode === 'right' && leftImgRef.current) {
-      leftImgRef.current.src = '';
-    }
+  // Handle view mode change - switch camera on backend
+  const handleViewModeChange = async (newMode) => {
+    if (newMode === viewMode) return; // No change needed
     
     setViewMode(newMode);
+    setLoading(true);
+    setLoadingMessage('Switching camera...');
     
-    // Generate new feed key to refresh visible feeds
-    setTimeout(() => setFeedKey(Date.now()), 50);
+    // Clear both feeds
+    if (leftImgRef.current) leftImgRef.current.src = '';
+    if (rightImgRef.current) rightImgRef.current.src = '';
+    
+    try {
+      // Stop current detection
+      await fetch(`${API_URL}/stop`, { method: 'POST' });
+      await new Promise(resolve => setTimeout(resolve, 300));
+      
+      // Start with new camera mode
+      const response = await fetch(`${API_URL}/start`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ camera: newMode })
+      });
+      const data = await response.json();
+      
+      if (data.status === 'success') {
+        setFeedKey(Date.now());
+        setLoading(false);
+      } else {
+        setError(data.message || 'Failed to switch camera');
+        setLoading(false);
+      }
+    } catch (err) {
+      setError('Error switching camera');
+      setLoading(false);
+    }
   };
 
   return (
@@ -153,37 +179,27 @@ const BlindSpotDetector = ({ onBack }) => {
       <div className="flex items-center justify-between mb-3">
         <h2 className="text-xl font-bold text-white">Blind Spot Detection</h2>
         
-        {/* View Mode Toggle */}
+        {/* View Mode Toggle - Left or Right only (one camera at a time) */}
         <div className="flex items-center gap-1 bg-gray-800 rounded-lg p-1">
           <button
             onClick={() => handleViewModeChange('left')}
-            className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-all ${
+            className={`px-4 py-1.5 rounded-md text-xs font-semibold transition-all ${
               viewMode === 'left'
                 ? 'bg-purple-600 text-white shadow-lg'
                 : 'text-gray-400 hover:text-white hover:bg-gray-700'
             }`}
           >
-            Left
-          </button>
-          <button
-            onClick={() => handleViewModeChange('both')}
-            className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-all ${
-              viewMode === 'both'
-                ? 'bg-purple-600 text-white shadow-lg'
-                : 'text-gray-400 hover:text-white hover:bg-gray-700'
-            }`}
-          >
-            Both
+            Left Camera
           </button>
           <button
             onClick={() => handleViewModeChange('right')}
-            className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-all ${
+            className={`px-4 py-1.5 rounded-md text-xs font-semibold transition-all ${
               viewMode === 'right'
                 ? 'bg-purple-600 text-white shadow-lg'
                 : 'text-gray-400 hover:text-white hover:bg-gray-700'
             }`}
           >
-            Right
+            Right Camera
           </button>
         </div>
       </div>
@@ -213,12 +229,12 @@ const BlindSpotDetector = ({ onBack }) => {
 
         {!loading && !error && (
           <>
-            {/* Left Camera Feed - Show when viewMode is 'left' or 'both' */}
-            {(viewMode === 'left' || viewMode === 'both') && (
-              <div className="flex-1 relative border-2 border-gray-700 rounded-lg overflow-hidden">
-                <div className="absolute top-2 left-2 bg-black/70 px-3 py-1 rounded-lg z-10">
-                  <span className="text-white text-sm font-bold">LEFT MIRROR</span>
-                </div>
+            {/* Left Section - Always visible, shows feed only when viewMode is 'left' */}
+            <div className="flex-1 relative border-2 border-gray-700 rounded-lg overflow-hidden">
+              <div className="absolute top-2 left-2 bg-black/70 px-3 py-1 rounded-lg z-10">
+                <span className="text-white text-sm font-bold">LEFT MIRROR</span>
+              </div>
+              {viewMode === 'left' ? (
                 <img
                   ref={leftImgRef}
                   src={`${API_URL}/left_feed?t=${feedKey}`}
@@ -227,25 +243,32 @@ const BlindSpotDetector = ({ onBack }) => {
                   style={{ display: 'block' }}
                   onError={(e) => console.error('Left feed error:', e)}
                 />
-                {leftDanger && (
-                  <div className="absolute top-2 right-2 z-20">
-                    <div className="bg-red-600 text-white px-4 py-2 rounded-lg shadow-2xl flex items-center gap-2 animate-pulse">
-                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-                      </svg>
-                      <span className="font-bold text-sm">DANGER!</span>
-                    </div>
+              ) : (
+                <div className="w-full h-full flex items-center justify-center bg-gray-900">
+                  <div className="text-center">
+                    <div className="text-gray-500 text-4xl mb-2">◀</div>
+                    <p className="text-gray-500 text-sm">Switch to Left Camera</p>
                   </div>
-                )}
-              </div>
-            )}
-
-            {/* Right Camera Feed - Show when viewMode is 'right' or 'both' */}
-            {(viewMode === 'right' || viewMode === 'both') && (
-              <div className="flex-1 relative border-2 border-gray-700 rounded-lg overflow-hidden">
-                <div className="absolute top-2 left-2 bg-black/70 px-3 py-1 rounded-lg z-10">
-                  <span className="text-white text-sm font-bold">RIGHT MIRROR</span>
                 </div>
+              )}
+              {viewMode === 'left' && leftDanger && (
+                <div className="absolute top-2 right-2 z-20">
+                  <div className="bg-red-600 text-white px-4 py-2 rounded-lg shadow-2xl flex items-center gap-2 animate-pulse">
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                    </svg>
+                    <span className="font-bold text-sm">DANGER!</span>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Right Section - Always visible, shows feed only when viewMode is 'right' */}
+            <div className="flex-1 relative border-2 border-gray-700 rounded-lg overflow-hidden">
+              <div className="absolute top-2 left-2 bg-black/70 px-3 py-1 rounded-lg z-10">
+                <span className="text-white text-sm font-bold">RIGHT MIRROR</span>
+              </div>
+              {viewMode === 'right' ? (
                 <img
                   ref={rightImgRef}
                   src={`${API_URL}/right_feed?t=${feedKey}`}
@@ -254,18 +277,25 @@ const BlindSpotDetector = ({ onBack }) => {
                   style={{ display: 'block' }}
                   onError={(e) => console.error('Right feed error:', e)}
                 />
-                {rightDanger && (
-                  <div className="absolute top-2 right-2 z-20">
-                    <div className="bg-red-600 text-white px-4 py-2 rounded-lg shadow-2xl flex items-center gap-2 animate-pulse">
-                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-                      </svg>
-                      <span className="font-bold text-sm">DANGER!</span>
-                    </div>
+              ) : (
+                <div className="w-full h-full flex items-center justify-center bg-gray-900">
+                  <div className="text-center">
+                    <div className="text-gray-500 text-4xl mb-2">▶</div>
+                    <p className="text-gray-500 text-sm">Switch to Right Camera</p>
                   </div>
-                )}
-              </div>
-            )}
+                </div>
+              )}
+              {viewMode === 'right' && rightDanger && (
+                <div className="absolute top-2 right-2 z-20">
+                  <div className="bg-red-600 text-white px-4 py-2 rounded-lg shadow-2xl flex items-center gap-2 animate-pulse">
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                    </svg>
+                    <span className="font-bold text-sm">DANGER!</span>
+                  </div>
+                </div>
+              )}
+            </div>
           </>
         )}
       </div>
@@ -281,17 +311,17 @@ const BlindSpotDetector = ({ onBack }) => {
         {isActive && (
           <div className="px-3 py-1.5 bg-gray-900 rounded-lg">
             <span className="text-xs text-gray-300">
-              {viewMode === 'both' ? '2 Cameras' : viewMode === 'left' ? 'Left Only' : 'Right Only'}
+              {viewMode === 'left' ? 'Left Camera Active' : 'Right Camera Active'}
             </span>
           </div>
         )}
-        {/* Show danger warning based on view mode */}
-        {((viewMode === 'left' || viewMode === 'both') && leftDanger) && (
+        {/* Show danger warning for active camera */}
+        {(viewMode === 'left' && leftDanger) && (
           <div className="px-3 py-1.5 bg-red-900/50 rounded-lg border border-red-500">
             <span className="text-xs text-red-300 font-semibold">⚠️ Left Side Warning</span>
           </div>
         )}
-        {((viewMode === 'right' || viewMode === 'both') && rightDanger) && (
+        {(viewMode === 'right' && rightDanger) && (
           <div className="px-3 py-1.5 bg-red-900/50 rounded-lg border border-red-500">
             <span className="text-xs text-red-300 font-semibold">⚠️ Right Side Warning</span>
           </div>

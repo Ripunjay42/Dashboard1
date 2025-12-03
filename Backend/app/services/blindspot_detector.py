@@ -326,13 +326,23 @@ class DualCameraManager:
     - Small YOLO input: 320x180 for maximum CPU performance
     - MJPEG streaming: Direct binary, no base64 conversion
     - Smart fallback: If dual cameras fail, use single camera
+    - Single camera mode: Only opens one camera for less Jetson load
     
     Result: Smooth dual camera performance on Windows CPU!
     """
     
-    def __init__(self, left_cam_id=0, right_cam_id=1):
+    def __init__(self, left_cam_id=0, right_cam_id=1, camera_mode='left'):
+        """
+        Initialize the DualCameraManager.
+        
+        Args:
+            left_cam_id: Camera ID for left blind spot
+            right_cam_id: Camera ID for right blind spot
+            camera_mode: 'left', 'right', or 'both' - which camera(s) to open
+        """
         self.left_cam_id = left_cam_id
         self.right_cam_id = right_cam_id
+        self.camera_mode = camera_mode  # 'left', 'right', or 'both'
         
         # Dual cameras (camera 0 for left, camera 1 for right)
         self.left_cap = None
@@ -533,132 +543,150 @@ class DualCameraManager:
         return available_cameras
     
     def _open_cameras(self):
-        """Open dual cameras with smart fallback to single camera"""
-        if self.left_cap is not None and self.right_cap is not None:
-            if self.left_cap.isOpened() and self.right_cap.isOpened():
+        """Open cameras based on camera_mode: 'left', 'right', or 'both'"""
+        # Check if required cameras are already open
+        if self.camera_mode == 'left':
+            if self.left_cap is not None and self.left_cap.isOpened():
                 return True
+        elif self.camera_mode == 'right':
+            if self.right_cap is not None and self.right_cap.isOpened():
+                return True
+        elif self.camera_mode == 'both':
+            if self.left_cap is not None and self.right_cap is not None:
+                if self.left_cap.isOpened() and self.right_cap.isOpened():
+                    return True
         
-        # Detect available cameras first
-        available_cameras = self._detect_available_cameras()
-        
-        if len(available_cameras) == 0:
-            print(" No physical cameras found!")
-            print("   Tip: Make sure cameras are connected and not used by other apps")
-            return False
+        # Detect Jetson
+        self.is_jetson = self._detect_jetson_nano()
         
         start_time = time.time()
         backend = cv2.CAP_DSHOW if platform.system() == "Windows" else cv2.CAP_ANY
         
-        if len(available_cameras) >= 2:
-            # Try to use two separate cameras (ideal setup)
-            print(f"📹 Opening dual cameras {available_cameras[0]} and {available_cameras[1]}...")
-            
-            try:
-                self.left_cap = cv2.VideoCapture(available_cameras[0], backend)
-                self.right_cap = cv2.VideoCapture(available_cameras[1], backend)
-                
-                if self.left_cap.isOpened() and self.right_cap.isOpened():
-                    self.dual_camera_mode = True
-                    print("   Dual camera mode: Left and Right cameras")
-                else:
-                    # Fallback to single camera
-                    if self.left_cap: self.left_cap.release()
-                    if self.right_cap: self.right_cap.release()
-                    raise Exception("Dual camera initialization failed")
-                    
-            except Exception as e:
-                print(f"   Dual camera failed: {e}")
-                print("   Falling back to single camera mode...")
-                
-                # Single camera fallback
-                self.left_cap = cv2.VideoCapture(available_cameras[0], backend)
-                self.right_cap = cv2.VideoCapture(available_cameras[0], backend)
-                self.dual_camera_mode = False
-                print("   Single camera mode: Same feed for both sides")
-        else:
-            # Only one camera available - use it for both sides
-            print(f"📹 Opening single camera {available_cameras[0]} for both sides...")
-            
-            # Try to open camera with working backends
+        print(f"📹 Opening camera(s) in '{self.camera_mode}' mode...")
+        
+        # Single camera mode - only open one camera (less Jetson load)
+        if self.camera_mode == 'left':
+            print(f"   Opening LEFT camera only (ID: {self.left_cam_id})...")
             if self.is_jetson:
-                # On Jetson, use proven backends: V4L2, CAP_ANY, then GStreamer
-                pipelines = self._get_jetson_camera_pipeline(available_cameras[0])
-                camera_opened = False
-                
-                for idx, (pipeline, backend_type) in enumerate(pipelines):
+                pipelines = self._get_jetson_camera_pipeline(self.left_cam_id)
+                for pipeline, backend_type in pipelines:
                     try:
-                        # Handle None backend (direct index)
                         if backend_type is None:
-                            test_cap = cv2.VideoCapture(pipeline)
+                            self.left_cap = cv2.VideoCapture(pipeline)
                         else:
-                            test_cap = cv2.VideoCapture(pipeline, backend_type)
-                        
-                        if test_cap.isOpened():
-                            ret, frame = test_cap.read()
+                            self.left_cap = cv2.VideoCapture(pipeline, backend_type)
+                        if self.left_cap.isOpened():
+                            ret, frame = self.left_cap.read()
                             if ret and frame is not None:
-                                # Success! Share this camera for both left and right
-                                self.left_cap = test_cap
-                                self.right_cap = self.left_cap  # Share the same object
-                                camera_opened = True
-                                
-                                backend_name = "V4L2" if backend_type == cv2.CAP_V4L2 else \
-                                              "CAP_ANY" if backend_type == cv2.CAP_ANY else \
-                                              "GStreamer" if backend_type == cv2.CAP_GSTREAMER else \
-                                              "Direct"
-                                print(f"   ✓ Camera opened successfully (backend: {backend_name})")
+                                print(f"   ✓ Left camera opened successfully")
                                 break
-                        test_cap.release()
-                    except Exception as e:
+                        self.left_cap.release()
+                    except:
+                        pass
+            else:
+                self.left_cap = cv2.VideoCapture(self.left_cam_id, backend)
+            
+            self.right_cap = None  # No right camera in left-only mode
+            self.dual_camera_mode = False
+            
+        elif self.camera_mode == 'right':
+            print(f"   Opening RIGHT camera only (ID: {self.right_cam_id})...")
+            if self.is_jetson:
+                pipelines = self._get_jetson_camera_pipeline(self.right_cam_id)
+                for pipeline, backend_type in pipelines:
+                    try:
+                        if backend_type is None:
+                            self.right_cap = cv2.VideoCapture(pipeline)
+                        else:
+                            self.right_cap = cv2.VideoCapture(pipeline, backend_type)
+                        if self.right_cap.isOpened():
+                            ret, frame = self.right_cap.read()
+                            if ret and frame is not None:
+                                print(f"   ✓ Right camera opened successfully")
+                                break
+                        self.right_cap.release()
+                    except:
+                        pass
+            else:
+                self.right_cap = cv2.VideoCapture(self.right_cam_id, backend)
+            
+            self.left_cap = None  # No left camera in right-only mode
+            self.dual_camera_mode = False
+            
+        else:  # 'both' mode
+            print(f"   Opening BOTH cameras (Left: {self.left_cam_id}, Right: {self.right_cam_id})...")
+            if self.is_jetson:
+                # Open left camera
+                pipelines = self._get_jetson_camera_pipeline(self.left_cam_id)
+                for pipeline, backend_type in pipelines:
+                    try:
+                        if backend_type is None:
+                            self.left_cap = cv2.VideoCapture(pipeline)
+                        else:
+                            self.left_cap = cv2.VideoCapture(pipeline, backend_type)
+                        if self.left_cap.isOpened():
+                            ret, frame = self.left_cap.read()
+                            if ret and frame is not None:
+                                print(f"   ✓ Left camera opened")
+                                break
+                        self.left_cap.release()
+                    except:
                         pass
                 
-                if not camera_opened:
-                    print(f"   ❌ Failed to open camera with any backend")
+                # Open right camera
+                pipelines = self._get_jetson_camera_pipeline(self.right_cam_id)
+                for pipeline, backend_type in pipelines:
+                    try:
+                        if backend_type is None:
+                            self.right_cap = cv2.VideoCapture(pipeline)
+                        else:
+                            self.right_cap = cv2.VideoCapture(pipeline, backend_type)
+                        if self.right_cap.isOpened():
+                            ret, frame = self.right_cap.read()
+                            if ret and frame is not None:
+                                print(f"   ✓ Right camera opened")
+                                break
+                        self.right_cap.release()
+                    except:
+                        pass
             else:
-                # Windows/Linux
-                self.left_cap = cv2.VideoCapture(available_cameras[0], backend)
-                if self.left_cap.isOpened():
-                    # Share the same capture object for single camera
-                    self.right_cap = self.left_cap
-                    camera_opened = True
-                else:
-                    self.right_cap = None
+                self.left_cap = cv2.VideoCapture(self.left_cam_id, backend)
+                self.right_cap = cv2.VideoCapture(self.right_cam_id, backend)
             
-            self.dual_camera_mode = False
-            print("   Single camera mode: Same feed for both sides")
+            self.dual_camera_mode = True
         
-        # Configure both cameras with ANTI-LAG optimizations
+        # Configure opened cameras with ANTI-LAG optimizations
         for cap in [self.left_cap, self.right_cap]:
             if cap and cap.isOpened():
-                cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)  # CRITICAL: No buffering = no lag accumulation
-                cap.set(cv2.CAP_PROP_FRAME_WIDTH, FRAME_W)  # 480x270 for good quality
+                cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+                cap.set(cv2.CAP_PROP_FRAME_WIDTH, FRAME_W)
                 cap.set(cv2.CAP_PROP_FRAME_HEIGHT, FRAME_H)
                 cap.set(cv2.CAP_PROP_FPS, 30)
-                
-                # Try MJPEG for better performance
                 try:
                     cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*'MJPG'))
                 except:
                     pass
-                
-                # Additional Windows-specific anti-lag settings
-                if platform.system() == "Windows":
-                    try:
-                        cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, 0.25)  # Disable auto-exposure for consistent frame timing
-                        cap.set(cv2.CAP_PROP_AUTOFOCUS, 0)         # Disable autofocus to prevent processing delays
-                    except:
-                        pass  # Some cameras don't support these properties
         
-        # Verify cameras are working
-        if not self.left_cap or not self.left_cap.isOpened() or not self.right_cap or not self.right_cap.isOpened():
-            print("Failed to open cameras")
-            return False
+        # Verify required cameras are working
+        if self.camera_mode == 'left':
+            if not self.left_cap or not self.left_cap.isOpened():
+                print("❌ Failed to open left camera")
+                return False
+        elif self.camera_mode == 'right':
+            if not self.right_cap or not self.right_cap.isOpened():
+                print("❌ Failed to open right camera")
+                return False
+        else:  # both
+            if not self.left_cap or not self.left_cap.isOpened() or not self.right_cap or not self.right_cap.isOpened():
+                print("❌ Failed to open both cameras")
+                return False
         
         open_time = time.time() - start_time
-        print(f"Cameras opened in {open_time:.2f}s")
+        print(f"✅ Camera(s) opened in {open_time:.2f}s (mode: {self.camera_mode})")
         return True
     
     def start(self):
-        """Start dual camera blind spot detection with CPU optimizations"""
+        """Start blind spot detection with single or dual camera mode"""
         if self.active:
             return True
         
@@ -686,23 +714,35 @@ class DualCameraManager:
         except:
             pass
         
-        # Start 4 threads for dual camera setup
-        self.left_video_thread = threading.Thread(target=self._left_video_loop, daemon=True)
-        self.left_ai_thread = threading.Thread(target=self._left_ai_loop, daemon=True)
-        self.right_video_thread = threading.Thread(target=self._right_video_loop, daemon=True)
-        self.right_ai_thread = threading.Thread(target=self._right_ai_loop, daemon=True)
+        # Start threads based on camera_mode (less threads = less Jetson load)
+        if self.camera_mode == 'left':
+            # Only start left camera threads
+            self.left_video_thread = threading.Thread(target=self._left_video_loop, daemon=True)
+            self.left_ai_thread = threading.Thread(target=self._left_ai_loop, daemon=True)
+            self.left_video_thread.start()
+            self.left_ai_thread.start()
+            print(f"✓ Blind spot detection started - LEFT camera only (2 threads)")
+            
+        elif self.camera_mode == 'right':
+            # Only start right camera threads
+            self.right_video_thread = threading.Thread(target=self._right_video_loop, daemon=True)
+            self.right_ai_thread = threading.Thread(target=self._right_ai_loop, daemon=True)
+            self.right_video_thread.start()
+            self.right_ai_thread.start()
+            print(f"✓ Blind spot detection started - RIGHT camera only (2 threads)")
+            
+        else:  # 'both' mode
+            # Start all 4 threads for dual camera
+            self.left_video_thread = threading.Thread(target=self._left_video_loop, daemon=True)
+            self.left_ai_thread = threading.Thread(target=self._left_ai_loop, daemon=True)
+            self.right_video_thread = threading.Thread(target=self._right_video_loop, daemon=True)
+            self.right_ai_thread = threading.Thread(target=self._right_ai_loop, daemon=True)
+            self.left_video_thread.start()
+            self.left_ai_thread.start()
+            self.right_video_thread.start()
+            self.right_ai_thread.start()
+            print(f"✓ Blind spot detection started - BOTH cameras (4 threads)")
         
-        # Start all threads
-        self.left_video_thread.start()
-        self.left_ai_thread.start()
-        self.right_video_thread.start()
-        self.right_ai_thread.start()
-        
-        mode_text = "Dual camera mode" if self.dual_camera_mode else "Single camera mode (both sides)"
-        print(f"✓ Blind spot detection started with 4 threads! ({mode_text})")
-        print("   Left camera: Video + AI threads")  
-        print("   Right camera: Video + AI threads")
-        print("   Expected performance: 15-30 FPS video + 10 FPS AI per camera")
         return True
     
     def _left_video_loop(self):

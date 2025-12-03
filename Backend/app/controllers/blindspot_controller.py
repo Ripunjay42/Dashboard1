@@ -7,16 +7,16 @@ camera_manager = None
 _operation_lock = threading.Lock()  # Prevent concurrent start/stop operations
 
 
-def initialize_cameras(left_cam_id=0, right_cam_id=1):
-    """Initialize the dual camera manager"""
+def initialize_cameras(left_cam_id=0, right_cam_id=1, camera_mode='left'):
+    """Initialize the dual camera manager with optional single camera mode"""
     global camera_manager
     if camera_manager is None:
-        camera_manager = DualCameraManager(left_cam_id, right_cam_id)
+        camera_manager = DualCameraManager(left_cam_id, right_cam_id, camera_mode)
     return camera_manager
 
 
-def start_detection(left_cam_id=0, right_cam_id=1):
-    """Start the blind spot detection"""
+def start_detection(left_cam_id=0, right_cam_id=1, camera_mode='left'):
+    """Start the blind spot detection with single or dual camera mode"""
     global camera_manager
     
     # Prevent concurrent start/stop operations
@@ -31,7 +31,7 @@ def start_detection(left_cam_id=0, right_cam_id=1):
         if camera_manager is not None and not camera_manager.is_active():
             camera_manager = None
         
-        manager = initialize_cameras(left_cam_id, right_cam_id)
+        manager = initialize_cameras(left_cam_id, right_cam_id, camera_mode)
         if manager.is_active():
             return {'status': 'success', 'message': 'Detection already running'}
         
