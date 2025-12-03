@@ -363,14 +363,9 @@ const Dashboard = ({ onSelectUseCase }) => {
     
     // If clicking home button (featureId === null)
     if (featureId === null) {
-      const currentFeature = activeFeature;
       setIsSwitching(true);
       
-      // Stop ALL cameras and cleanup (not just the active feature)
-      // This ensures complete camera release for pothole, blindspot, AND dms
-      await stopAllCamerasAndCleanup();
-      
-      // Now switch UI
+      // INSTANT UI switch - don't wait for backend cleanup
       setActiveFeature(null);
       setPreviousFeature(null);
       
@@ -385,6 +380,9 @@ const Dashboard = ({ onSelectUseCase }) => {
       if (onSelectUseCase) {
         onSelectUseCase(null);
       }
+      
+      // Fire-and-forget: cleanup happens in background, UI already switched
+      stopAllCamerasAndCleanup().catch(err => console.error('Cleanup error:', err));
       
       // Allow next switch after brief delay
       setTimeout(() => setIsSwitching(false), 200);
