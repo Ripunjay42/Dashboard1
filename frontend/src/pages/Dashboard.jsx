@@ -24,6 +24,7 @@ const Dashboard = ({ onSelectUseCase }) => {
   const [useMqtt, setUseMqtt] = useState(false); // Toggle between MQTT and keyboard control - OFF by default
   const [tripDistance, setTripDistance] = useState(1000); // Trip distance in km, starts at 1000
   const [isSwitching, setIsSwitching] = useState(false); // Prevent rapid concurrent switching
+  const [previousFeature, setPreviousFeature] = useState(null); // Track previous feature during transition
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -362,16 +363,17 @@ const Dashboard = ({ onSelectUseCase }) => {
     
     // If clicking home button (featureId === null)
     if (featureId === null) {
-      const previousFeature = activeFeature;
+      const currentFeature = activeFeature;
       setIsSwitching(true);
       
       // Stop previous feature FIRST before switching UI
-      if (previousFeature) {
-        await stopActiveFeature(previousFeature);
+      if (currentFeature) {
+        await stopActiveFeature(currentFeature);
       }
       
       // Now switch UI
       setActiveFeature(null);
+      setPreviousFeature(null);
       
       // Reset all states for fresh start (no browser refresh)
       setSpeed(0);
@@ -393,13 +395,16 @@ const Dashboard = ({ onSelectUseCase }) => {
     // If clicking the same feature, do nothing
     if (activeFeature === featureId) return;
     
-    const previousFeature = activeFeature;
+    const currentFeature = activeFeature;
     setIsSwitching(true);
     
     // IMPORTANT: Stop previous feature COMPLETELY before starting new one
     // This prevents camera conflicts on Jetson
-    if (previousFeature) {
-      // First, set activeFeature to null to unmount the component
+    if (currentFeature) {
+      // Store current feature as previous - UI will keep showing it during transition
+      setPreviousFeature(currentFeature);
+      
+      // Set activeFeature to null to unmount the component
       // This releases the browser's MJPEG connection
       setActiveFeature(null);
       
@@ -407,7 +412,7 @@ const Dashboard = ({ onSelectUseCase }) => {
       await new Promise(resolve => setTimeout(resolve, 50));
       
       // Now stop the backend service
-      await stopActiveFeature(previousFeature);
+      await stopActiveFeature(currentFeature);
       
       // Additional delay to ensure camera is fully released
       await new Promise(resolve => setTimeout(resolve, 200));
@@ -415,6 +420,7 @@ const Dashboard = ({ onSelectUseCase }) => {
     
     // Now set new feature and allow new component to mount
     setActiveFeature(featureId);
+    setPreviousFeature(null); // Clear previous - new feature is now showing
     
     if (onSelectUseCase) {
       onSelectUseCase(featureId);
@@ -468,6 +474,13 @@ const Dashboard = ({ onSelectUseCase }) => {
                   <div className="bg-gray-900/90 backdrop-blur-sm border-4 border-gray-700 rounded-3xl overflow-hidden p-2 shadow-2xl w-full" style={{ minHeight: '352px', height: '528px', maxWidth: '990px' }}>
                   <div className="h-full w-full">
                     <div className="bg-gray-900 border-2 rounded-2xl h-full w-full overflow-hidden relative">
+                      {/* Show loading overlay during feature transition */}
+                      {isSwitching && previousFeature && !activeFeature && (
+                        <div className="absolute inset-0 flex flex-col items-center justify-center bg-gray-900 z-20">
+                          <div className="animate-spin rounded-full h-12 w-12 border-4 border-cyan-500 border-t-transparent mb-4"></div>
+                          <p className="text-white text-lg">Switching...</p>
+                        </div>
+                      )}
                       {/* Show Pothole Detection when active */}
                       {activeFeature === 'pothole' ? (
                         <PotholeDetector onBack={async () => {
@@ -484,9 +497,9 @@ const Dashboard = ({ onSelectUseCase }) => {
                           await stopActiveFeature('dms');
                           setActiveFeature(null);
                         }} />
-                      ) : (
+                      ) : !isSwitching ? (
                         <Car3DView pirAlert={pirAlert} />
-                      )}
+                      ) : null}
                     </div>
                   </div>
                 </div>
