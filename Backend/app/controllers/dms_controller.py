@@ -1,8 +1,10 @@
 from flask import Response, jsonify
 from app.services.dms_detector import DMSStreamManager
+import threading
 
 # Global DMS stream manager instance
 dms_manager = None
+_operation_lock = threading.Lock()  # Prevent concurrent start/stop operations
 
 
 def initialize_stream(camera_id):
@@ -15,8 +17,19 @@ def initialize_stream(camera_id):
 
 def start_detection(camera_id):
     """Start the DMS detection stream"""
+    global dms_manager
+    
+    # Prevent concurrent start/stop operations
+    if not _operation_lock.acquire(blocking=False):
+        return {'status': 'error', 'message': 'Operation in progress, please wait'}, 409
+    
     try:
         import time
+        
+        # Reset manager if it exists but isn't active (clean slate)
+        if dms_manager is not None and not dms_manager.is_active():
+            dms_manager = None
+        
         manager = initialize_stream(camera_id)
         if manager.is_active():
             return {'status': 'success', 'message': 'DMS already running'}
@@ -27,9 +40,13 @@ def start_detection(camera_id):
         if manager.start():
             return {'status': 'success', 'message': 'DMS detection started'}
         else:
+            dms_manager = None
             return {'status': 'error', 'message': 'Failed to open camera'}, 500
     except Exception as e:
+        dms_manager = None
         return {'status': 'error', 'message': str(e)}, 500
+    finally:
+        _operation_lock.release()
 
 
 def stop_detection():
@@ -38,27 +55,30 @@ def stop_detection():
     import gc
     import torch
     
-    if dms_manager is not None:
-        print("🧹 CLEANUP: Stopping DMS detection with aggressive cleanup...")
-        dms_manager.stop()  # This handles camera release and lock release internally
-        dms_manager = None  # Reset for fresh initialization on next start
-        
-        # NOTE: Don't call release_camera_lock or cleanup_all_cameras here!
-        # DMSStreamManager.stop() already handles this properly.
-        # Double-releasing corrupts the lock state and breaks subsequent starts.
-        
-        # JETSON: Clear CUDA cache if available
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
-            torch.cuda.synchronize()
-        
-        # JETSON: Aggressive garbage collection (3 passes)
-        for i in range(3):
-            gc.collect()
-        
-        print("✅ CLEANUP: DMS cleanup complete")
-        return {'status': 'success', 'message': 'Detection stopped'}
-    return {'status': 'success', 'message': 'Detection was not running'}
+    # Prevent concurrent start/stop operations
+    if not _operation_lock.acquire(blocking=False):
+        return {'status': 'success', 'message': 'Stop already in progress'}
+    
+    try:
+        if dms_manager is not None:
+            print("🧹 CLEANUP: Stopping DMS detection with aggressive cleanup...")
+            dms_manager.stop()  # This handles camera release and lock release internally
+            dms_manager = None  # Reset for fresh initialization on next start
+            
+            # JETSON: Clear CUDA cache if available
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+                torch.cuda.synchronize()
+            
+            # JETSON: Aggressive garbage collection (3 passes)
+            for i in range(3):
+                gc.collect()
+            
+            print("✅ CLEANUP: DMS cleanup complete")
+            return {'status': 'success', 'message': 'Detection stopped'}
+        return {'status': 'success', 'message': 'Detection was not running'}
+    finally:
+        _operation_lock.release()
 
 
 def get_stream_status():

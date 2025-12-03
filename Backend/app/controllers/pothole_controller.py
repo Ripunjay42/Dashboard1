@@ -1,8 +1,10 @@
 from flask import Response, jsonify
 from app.services.pothole_detector import VideoStreamManager
+import threading
 
 # Global video stream manager instance
 video_manager = None
+_operation_lock = threading.Lock()  # Prevent concurrent start/stop operations
 
 
 def initialize_stream(model_path, camera_id):
@@ -15,11 +17,22 @@ def initialize_stream(model_path, camera_id):
 
 def start_detection(model_path, camera_id):
     """Start the pothole detection stream"""
+    global video_manager
+    
+    # Prevent concurrent start/stop operations
+    if not _operation_lock.acquire(blocking=False):
+        return {'status': 'error', 'message': 'Operation in progress, please wait'}, 409
+    
     try:
         import time
+        
+        # Reset manager if it exists but isn't active (clean slate)
+        if video_manager is not None and not video_manager.is_active():
+            video_manager = None
+        
         manager = initialize_stream(model_path, camera_id)
         if manager.is_active():
-            return {'status': 'error', 'message': 'Detection already running'}, 400
+            return {'status': 'success', 'message': 'Detection already running'}
         
         # JETSON: Small delay after previous cleanup to ensure camera release
         time.sleep(0.5)
@@ -27,9 +40,13 @@ def start_detection(model_path, camera_id):
         if manager.start():
             return {'status': 'success', 'message': 'Detection started'}
         else:
+            video_manager = None
             return {'status': 'error', 'message': 'Failed to start stream'}, 500
     except Exception as e:
+        video_manager = None
         return {'status': 'error', 'message': str(e)}, 500
+    finally:
+        _operation_lock.release()
 
 
 def stop_detection():
@@ -38,31 +55,34 @@ def stop_detection():
     import gc
     import torch
     
-    if video_manager is not None:
-        print("🧹 CLEANUP: Stopping pothole detection with aggressive cleanup...")
-        video_manager.stop()  # This handles camera release and lock release internally
-        video_manager = None  # Reset for fresh initialization on next start
-        
-        # NOTE: Don't call release_camera_lock or cleanup_all_cameras here!
-        # VideoStreamManager.stop() already handles this properly.
-        # Double-releasing corrupts the lock state and breaks subsequent starts.
-        
-        # Unload pothole model from memory
-        from app.services.pothole_detector import unload_global_detector
-        unload_global_detector()
-        
-        # JETSON: Clear CUDA cache if available
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
-            torch.cuda.synchronize()
-        
-        # JETSON: Aggressive garbage collection (3 passes)
-        for i in range(3):
-            gc.collect()
-        
-        print("✅ CLEANUP: Pothole cleanup complete")
-        return {'status': 'success', 'message': 'Detection stopped'}
-    return {'status': 'success', 'message': 'Detection was not running'}
+    # Prevent concurrent start/stop operations
+    if not _operation_lock.acquire(blocking=False):
+        return {'status': 'success', 'message': 'Stop already in progress'}
+    
+    try:
+        if video_manager is not None:
+            print("🧹 CLEANUP: Stopping pothole detection with aggressive cleanup...")
+            video_manager.stop()  # This handles camera release and lock release internally
+            video_manager = None  # Reset for fresh initialization on next start
+            
+            # Unload pothole model from memory
+            from app.services.pothole_detector import unload_global_detector
+            unload_global_detector()
+            
+            # JETSON: Clear CUDA cache if available
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+                torch.cuda.synchronize()
+            
+            # JETSON: Aggressive garbage collection (3 passes)
+            for i in range(3):
+                gc.collect()
+            
+            print("✅ CLEANUP: Pothole cleanup complete")
+            return {'status': 'success', 'message': 'Detection stopped'}
+        return {'status': 'success', 'message': 'Detection was not running'}
+    finally:
+        _operation_lock.release()
 
 
 def get_stream_status():

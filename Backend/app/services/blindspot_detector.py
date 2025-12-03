@@ -662,16 +662,10 @@ class DualCameraManager:
         if self.active:
             return True
         
-        # Import camera manager for lock management
-        from app.services.camera_manager import acquire_camera_lock, release_camera_lock
-        
-        # Acquire camera lock before opening
-        if not acquire_camera_lock("blindspot", timeout=3.0):
-            print("❌ Could not acquire camera lock - another service may be using the camera")
-            return False
+        # NOTE: Camera lock is acquired by the controller, NOT here
+        # This prevents double-lock acquisition issues
         
         if not self._open_cameras():
-            release_camera_lock("blindspot")  # Release lock if camera open fails
             return False
         
         # Load detector

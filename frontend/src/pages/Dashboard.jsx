@@ -23,6 +23,7 @@ const Dashboard = ({ onSelectUseCase }) => {
   const [mqttConnected, setMqttConnected] = useState(false);
   const [useMqtt, setUseMqtt] = useState(false); // Toggle between MQTT and keyboard control - OFF by default
   const [tripDistance, setTripDistance] = useState(1000); // Trip distance in km, starts at 1000
+  const [isSwitching, setIsSwitching] = useState(false); // Prevent rapid concurrent switching
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -353,10 +354,17 @@ const Dashboard = ({ onSelectUseCase }) => {
   };
 
   const handleFeatureClick = async (featureId) => {
+    // Prevent rapid concurrent switching
+    if (isSwitching) {
+      console.log('⏳ Switch in progress, please wait...');
+      return;
+    }
+    
     // If clicking home button (featureId === null)
     if (featureId === null) {
-      // INSTANT switch - no loading spinner
       const previousFeature = activeFeature;
+      
+      // INSTANT switch - no loading spinner
       setActiveFeature(null);
       
       // Reset all states for fresh start (no browser refresh)
@@ -369,7 +377,8 @@ const Dashboard = ({ onSelectUseCase }) => {
       
       // Background cleanup: Stop all cameras after UI has switched
       if (previousFeature) {
-        stopAllCamerasAndCleanup();
+        setIsSwitching(true);
+        stopAllCamerasAndCleanup().finally(() => setIsSwitching(false));
       }
       
       if (onSelectUseCase) {
@@ -384,16 +393,19 @@ const Dashboard = ({ onSelectUseCase }) => {
     // INSTANT UI SWITCH: Set new feature immediately for responsive feel
     const previousFeature = activeFeature;
     setActiveFeature(featureId);
+    setIsSwitching(true);
     
     if (onSelectUseCase) {
       onSelectUseCase(featureId);
     }
     
-    // Background cleanup: Stop previous feature without blocking UI
+    // Sequential cleanup: Stop previous feature first, then allow new one to start
     if (previousFeature) {
-      // Fire and forget - don't await, let it run in background
-      stopActiveFeature(previousFeature);
+      await stopActiveFeature(previousFeature);
     }
+    
+    // Small delay before allowing next switch to prevent rapid clicks
+    setTimeout(() => setIsSwitching(false), 300);
   };
 
   return (

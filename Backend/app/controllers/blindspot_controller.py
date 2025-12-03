@@ -1,8 +1,10 @@
 from flask import Response, jsonify
 from app.services.blindspot_detector import DualCameraManager
+import threading
 
 # Global dual camera manager instance
 camera_manager = None
+_operation_lock = threading.Lock()  # Prevent concurrent start/stop operations
 
 
 def initialize_cameras(left_cam_id=0, right_cam_id=1):
@@ -15,21 +17,31 @@ def initialize_cameras(left_cam_id=0, right_cam_id=1):
 
 def start_detection(left_cam_id=0, right_cam_id=1):
     """Start the blind spot detection"""
+    global camera_manager
+    
+    # Prevent concurrent start/stop operations
+    if not _operation_lock.acquire(blocking=False):
+        return {'status': 'error', 'message': 'Operation in progress, please wait'}, 409
+    
     try:
         import time
-        from app.services.camera_manager import acquire_camera_lock
+        from app.services.camera_manager import acquire_camera_lock, release_camera_lock
+        
+        # Reset manager if it exists but isn't active (clean slate)
+        if camera_manager is not None and not camera_manager.is_active():
+            camera_manager = None
         
         manager = initialize_cameras(left_cam_id, right_cam_id)
         if manager.is_active():
-            return {'status': 'error', 'message': 'Detection already running'}, 400
+            return {'status': 'success', 'message': 'Detection already running'}
         
         # JETSON: Acquire camera lock FIRST to prevent race conditions
         if not acquire_camera_lock('blindspot', timeout=5.0):
-            return {'status': 'error', 'message': 'Failed to acquire camera lock (another service is using cameras)'}, 503
+            print("❌ Could not acquire camera lock - another service may be using the camera")
+            return {'status': 'error', 'message': 'Failed to acquire camera lock (another service is using cameras)'}, 500
         
         # JETSON: Wait for cameras to be fully released by previous service
-        # This prevents "camera already in use" errors on dual cameras
-        time.sleep(1.2)  # Increased delay for dual camera initialization
+        time.sleep(0.8)
         
         # Load detector model first (singleton, fast if already loaded)
         from app.services.blindspot_detector import get_global_detector
@@ -38,9 +50,21 @@ def start_detection(left_cam_id=0, right_cam_id=1):
         if manager.start():
             return {'status': 'success', 'message': 'Detection started'}
         else:
+            # IMPORTANT: Release lock if start failed
+            release_camera_lock('blindspot')
+            camera_manager = None
             return {'status': 'error', 'message': 'Failed to start detection'}, 500
     except Exception as e:
+        # IMPORTANT: Release lock on any exception
+        try:
+            from app.services.camera_manager import release_camera_lock
+            release_camera_lock('blindspot')
+        except:
+            pass
+        camera_manager = None
         return {'status': 'error', 'message': str(e)}, 500
+    finally:
+        _operation_lock.release()
 
 
 def stop_detection():
@@ -49,27 +73,30 @@ def stop_detection():
     import gc
     import torch
     
-    if camera_manager is not None:
-        print("🧹 CLEANUP: Stopping blindspot detection with aggressive cleanup...")
-        camera_manager.stop()  # This handles camera release and lock release internally
-        camera_manager = None  # Reset for fresh initialization on next start
-        
-        # NOTE: Don't call release_camera_lock or cleanup_all_cameras here!
-        # DualCameraManager.stop() already handles this properly.
-        # Double-releasing corrupts the lock state and breaks subsequent starts.
-        
-        # JETSON: Clear CUDA cache if available
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
-            torch.cuda.synchronize()
-        
-        # JETSON: Aggressive garbage collection (3 passes)
-        for i in range(3):
-            gc.collect()
-        
-        print("✅ CLEANUP: Blindspot cleanup complete")
-        return {'status': 'success', 'message': 'Detection stopped'}
-    return {'status': 'success', 'message': 'Detection was not running'}
+    # Prevent concurrent start/stop operations
+    if not _operation_lock.acquire(blocking=False):
+        return {'status': 'success', 'message': 'Stop already in progress'}
+    
+    try:
+        if camera_manager is not None:
+            print("🧹 CLEANUP: Stopping blindspot detection with aggressive cleanup...")
+            camera_manager.stop()  # This handles camera release and lock release internally
+            camera_manager = None  # Reset for fresh initialization on next start
+            
+            # JETSON: Clear CUDA cache if available
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+                torch.cuda.synchronize()
+            
+            # JETSON: Aggressive garbage collection (3 passes)
+            for i in range(3):
+                gc.collect()
+            
+            print("✅ CLEANUP: Blindspot cleanup complete")
+            return {'status': 'success', 'message': 'Detection stopped'}
+        return {'status': 'success', 'message': 'Detection was not running'}
+    finally:
+        _operation_lock.release()
 
 
 def get_stream_status():
