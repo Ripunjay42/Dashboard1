@@ -179,27 +179,37 @@ const BlindSpotDetector = ({ onBack }) => {
       <div className="flex items-center justify-between mb-3">
         <h2 className="text-xl font-bold text-white">Blind Spot Detection</h2>
         
-        {/* View Mode Toggle - Left or Right only (one camera at a time) */}
+        {/* View Mode Toggle - Left, Both, or Right */}
         <div className="flex items-center gap-1 bg-gray-800 rounded-lg p-1">
           <button
             onClick={() => handleViewModeChange('left')}
-            className={`px-4 py-1.5 rounded-md text-xs font-semibold transition-all ${
+            className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-all ${
               viewMode === 'left'
                 ? 'bg-purple-600 text-white shadow-lg'
                 : 'text-gray-400 hover:text-white hover:bg-gray-700'
             }`}
           >
-            Left Camera
+            Left
+          </button>
+          <button
+            onClick={() => handleViewModeChange('both')}
+            className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-all ${
+              viewMode === 'both'
+                ? 'bg-purple-600 text-white shadow-lg'
+                : 'text-gray-400 hover:text-white hover:bg-gray-700'
+            }`}
+          >
+            Both
           </button>
           <button
             onClick={() => handleViewModeChange('right')}
-            className={`px-4 py-1.5 rounded-md text-xs font-semibold transition-all ${
+            className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-all ${
               viewMode === 'right'
                 ? 'bg-purple-600 text-white shadow-lg'
                 : 'text-gray-400 hover:text-white hover:bg-gray-700'
             }`}
           >
-            Right Camera
+            Right
           </button>
         </div>
       </div>
@@ -229,12 +239,12 @@ const BlindSpotDetector = ({ onBack }) => {
 
         {!loading && !error && (
           <>
-            {/* Left Section - Always visible, shows feed only when viewMode is 'left' */}
+            {/* Left Section - Shows feed when viewMode is 'left' or 'both' */}
             <div className="flex-1 relative border-2 border-gray-700 rounded-lg overflow-hidden">
               <div className="absolute top-2 left-2 bg-black/70 px-3 py-1 rounded-lg z-10">
                 <span className="text-white text-sm font-bold">LEFT MIRROR</span>
               </div>
-              {viewMode === 'left' ? (
+              {(viewMode === 'left' || viewMode === 'both') ? (
                 <img
                   ref={leftImgRef}
                   src={`${API_URL}/left_feed?t=${feedKey}`}
@@ -251,7 +261,7 @@ const BlindSpotDetector = ({ onBack }) => {
                   </div>
                 </div>
               )}
-              {viewMode === 'left' && leftDanger && (
+              {(viewMode === 'left' || viewMode === 'both') && leftDanger && (
                 <div className="absolute top-2 right-2 z-20">
                   <div className="bg-red-600 text-white px-4 py-2 rounded-lg shadow-2xl flex items-center gap-2 animate-pulse">
                     <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -263,12 +273,12 @@ const BlindSpotDetector = ({ onBack }) => {
               )}
             </div>
 
-            {/* Right Section - Always visible, shows feed only when viewMode is 'right' */}
+            {/* Right Section - Shows feed when viewMode is 'right' or 'both' */}
             <div className="flex-1 relative border-2 border-gray-700 rounded-lg overflow-hidden">
               <div className="absolute top-2 left-2 bg-black/70 px-3 py-1 rounded-lg z-10">
                 <span className="text-white text-sm font-bold">RIGHT MIRROR</span>
               </div>
-              {viewMode === 'right' ? (
+              {(viewMode === 'right' || viewMode === 'both') ? (
                 <img
                   ref={rightImgRef}
                   src={`${API_URL}/right_feed?t=${feedKey}`}
@@ -285,7 +295,7 @@ const BlindSpotDetector = ({ onBack }) => {
                   </div>
                 </div>
               )}
-              {viewMode === 'right' && rightDanger && (
+              {(viewMode === 'right' || viewMode === 'both') && rightDanger && (
                 <div className="absolute top-2 right-2 z-20">
                   <div className="bg-red-600 text-white px-4 py-2 rounded-lg shadow-2xl flex items-center gap-2 animate-pulse">
                     <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -311,17 +321,17 @@ const BlindSpotDetector = ({ onBack }) => {
         {isActive && (
           <div className="px-3 py-1.5 bg-gray-900 rounded-lg">
             <span className="text-xs text-gray-300">
-              {viewMode === 'left' ? 'Left Camera Active' : 'Right Camera Active'}
+              {viewMode === 'both' ? 'Both Cameras Active' : viewMode === 'left' ? 'Left Camera Active' : 'Right Camera Active'}
             </span>
           </div>
         )}
-        {/* Show danger warning for active camera */}
-        {(viewMode === 'left' && leftDanger) && (
+        {/* Show danger warning for active camera(s) */}
+        {((viewMode === 'left' || viewMode === 'both') && leftDanger) && (
           <div className="px-3 py-1.5 bg-red-900/50 rounded-lg border border-red-500">
             <span className="text-xs text-red-300 font-semibold">⚠️ Left Side Warning</span>
           </div>
         )}
-        {(viewMode === 'right' && rightDanger) && (
+        {((viewMode === 'right' || viewMode === 'both') && rightDanger) && (
           <div className="px-3 py-1.5 bg-red-900/50 rounded-lg border border-red-500">
             <span className="text-xs text-red-300 font-semibold">⚠️ Right Side Warning</span>
           </div>
