@@ -500,6 +500,11 @@ class VideoStreamManager:
         self.cap = None
         self.is_running = False
         self.lock = threading.Lock()
+        self._stop_event = threading.Event()  # More reliable stop signal
+        
+        # Thread references for proper cleanup
+        self._video_thread = None
+        self._ai_thread = None
         
         # Shared buffers (thread-safe)
         self.latest_frame = None  # Raw frame from camera (for AI thread)
@@ -622,14 +627,15 @@ class VideoStreamManager:
             print("Camera already initialized, starting threads...")
         
         self.is_running = True
+        self._stop_event.clear()  # Clear stop event before starting threads
         
         # Thread 1: FAST video streaming (no AI)
-        video_thread = threading.Thread(target=self._video_stream_loop, daemon=True)
-        video_thread.start()
+        self._video_thread = threading.Thread(target=self._video_stream_loop, daemon=True)
+        self._video_thread.start()
         
         # Thread 2: SLOW AI inference (independent)
-        ai_thread = threading.Thread(target=self._ai_inference_loop, daemon=True)
-        ai_thread.start()
+        self._ai_thread = threading.Thread(target=self._ai_inference_loop, daemon=True)
+        self._ai_thread.start()
         
         print("✓ Two parallel threads started:")
         print("  - Thread 1: Video streaming (30 FPS)")
@@ -645,12 +651,12 @@ class VideoStreamManager:
         frame_counter = 0
         last_gc = time.time()
         
-        while self.is_running:
+        while self.is_running and not self._stop_event.is_set():
             if not self.cap or not self.cap.isOpened():
                 break
             
             # Quick check for stop signal
-            if not self.is_running:
+            if self._stop_event.is_set():
                 break
             
             # More frequent garbage collection to prevent memory buildup (every 10 seconds)
@@ -668,12 +674,14 @@ class VideoStreamManager:
             
             # Now grab and retrieve the fresh frame
             if not self.cap.grab():
-                time.sleep(0.001)
+                if self._stop_event.wait(timeout=0.001):
+                    break
                 continue
             
             ret, frame = self.cap.retrieve()
             if not ret or frame is None:
-                time.sleep(0.001)
+                if self._stop_event.wait(timeout=0.001):
+                    break
                 continue
             
             frame_counter += 1
@@ -684,7 +692,7 @@ class VideoStreamManager:
                 current_mask = self.current_mask
             
             # Quick check for stop signal before heavy operations
-            if not self.is_running:
+            if self._stop_event.is_set():
                 del frame
                 break
             
@@ -719,15 +727,17 @@ class VideoStreamManager:
                     if self.encoded_frame is not None:
                         del self.encoded_frame
                     self.encoded_frame = frame_bytes
+        
+        print("🛑 Pothole video thread exiting")
     
     def _ai_inference_loop(self):
         """
         THREAD 2: INSTANT AI Inference
         Optimized for absolute minimum latency
         """
-        while self.is_running:
+        while self.is_running and not self._stop_event.is_set():
             # Quick exit check at start of each iteration
-            if not self.is_running:
+            if self._stop_event.is_set():
                 break
                 
             # Get latest frame copy (non-blocking)
@@ -750,11 +760,12 @@ class VideoStreamManager:
                     original_h, original_w = self.latest_frame.shape[:2]
             
             if frame_small is None:
-                time.sleep(0.005)
+                if self._stop_event.wait(timeout=0.005):
+                    break
                 continue
             
             # Quick exit check before heavy AI operation
-            if not self.is_running:
+            if self._stop_event.is_set():
                 del frame_small
                 break
             
@@ -802,8 +813,11 @@ class VideoStreamManager:
             # FRAME SKIP: Only needed on CPU mode to prevent overload
             # GPU mode can handle full-speed processing without throttling
             if hasattr(self.detector, 'is_jetson') and self.detector.is_jetson and self.detector.device == 'cpu':
-                time.sleep(0.033)  # ~30 FPS AI processing on CPU mode
+                if self._stop_event.wait(timeout=0.033):  # ~30 FPS AI processing on CPU mode
+                    break
                 # CUDA mode: No delay - GPU can process at full speed!
+        
+        print("🛑 Pothole AI thread exiting")
     
     def get_encoded_frame(self):
         """Get pre-encoded JPEG frame for MJPEG streaming"""
@@ -821,15 +835,40 @@ class VideoStreamManager:
         """Stop both video and AI threads - ROBUST cleanup for Jetson"""
         print("🛑 Stopping pothole detection...")
         
-        # Signal threads to stop FIRST
+        # Signal threads to stop using both mechanisms for reliability
         self.is_running = False
+        self._stop_event.set()  # Signal threads via event (faster response)
         
         # Import camera manager for proper cleanup
         from app.services.camera_manager import force_release_camera, release_camera_lock
         
-        # Wait for threads to notice the stop flag and exit gracefully
+        # Wait for threads with proper join
         is_jetson = hasattr(self.detector, 'is_jetson') and self.detector.is_jetson
-        time.sleep(0.3 if is_jetson else 0.15)
+        thread_timeout = 2.0 if is_jetson else 1.0
+        
+        threads = [
+            ('video', self._video_thread),
+            ('ai', self._ai_thread)
+        ]
+        
+        # First pass: try to join all threads gracefully
+        for name, thread in threads:
+            if thread is not None and thread.is_alive():
+                thread.join(timeout=thread_timeout)
+                if thread.is_alive():
+                    print(f"⚠️ Pothole {name} thread did not stop after {thread_timeout}s")
+        
+        # Second pass: check again after a small delay
+        time.sleep(0.1)
+        for name, thread in threads:
+            if thread is not None and thread.is_alive():
+                thread.join(timeout=0.5)
+                if thread.is_alive():
+                    print(f"⚠️ Pothole {name} thread still running - will be abandoned (daemon thread)")
+        
+        # Clear thread references
+        self._video_thread = None
+        self._ai_thread = None
         
         # Release camera with proper Jetson cleanup
         if self.cap is not None:

@@ -362,6 +362,7 @@ class DualCameraManager:
         
         self.running = False
         self.active = False
+        self._stop_event = threading.Event()  # More reliable stop signal
         
         # 4 threads total (2 per camera) for dual camera setup
         self.left_video_thread = None
@@ -693,6 +694,9 @@ class DualCameraManager:
         # NOTE: Camera lock is acquired by the controller, NOT here
         # This prevents double-lock acquisition issues
         
+        # Clear stop event before starting new threads
+        self._stop_event.clear()
+        
         if not self._open_cameras():
             return False
         
@@ -750,13 +754,15 @@ class DualCameraManager:
         frame_counter = 0
         last_gc = time.time()
         
-        while self.running:
+        while self.running and not self._stop_event.is_set():
             if not self.left_cap or not self.left_cap.isOpened():
-                time.sleep(0.01)
+                # Use event wait for faster response to stop signal
+                if self._stop_event.wait(timeout=0.01):
+                    break
                 continue
             
             # Quick check for stop signal
-            if not self.running:
+            if self._stop_event.is_set():
                 break
             
             # Periodic garbage collection
@@ -772,12 +778,14 @@ class DualCameraManager:
             
             # Now grab and retrieve the fresh frame
             if not self.left_cap.grab():
-                time.sleep(0.001)
+                if self._stop_event.wait(timeout=0.001):
+                    break
                 continue
             
             ret, frame = self.left_cap.retrieve()
             if not ret or frame is None:
-                time.sleep(0.001)
+                if self._stop_event.wait(timeout=0.001):
+                    break
                 continue
             
             frame_counter += 1
@@ -794,7 +802,7 @@ class DualCameraManager:
                 danger = self.left_danger
             
             # Quick check for stop signal before heavy operations
-            if not self.running:
+            if self._stop_event.is_set():
                 del frame
                 break
             
@@ -825,19 +833,23 @@ class DualCameraManager:
                     if self.left_encoded is not None:
                         del self.left_encoded
                     self.left_encoded = frame_bytes
+        
+        print("🛑 Left video thread exiting")
     
     def _right_video_loop(self):
         """Right camera video thread - SMOOTH LAG-FREE FOR JETSON"""
         frame_counter = 0
         last_gc = time.time()
         
-        while self.running:
+        while self.running and not self._stop_event.is_set():
             if not self.right_cap or not self.right_cap.isOpened():
-                time.sleep(0.01)
+                # Use event wait for faster response to stop signal
+                if self._stop_event.wait(timeout=0.01):
+                    break
                 continue
             
             # Quick check for stop signal
-            if not self.running:
+            if self._stop_event.is_set():
                 break
             
             # Periodic garbage collection
@@ -853,12 +865,14 @@ class DualCameraManager:
             
             # Now grab and retrieve the fresh frame
             if not self.right_cap.grab():
-                time.sleep(0.001)
+                if self._stop_event.wait(timeout=0.001):
+                    break
                 continue
             
             ret, frame = self.right_cap.retrieve()
             if not ret or frame is None:
-                time.sleep(0.001)
+                if self._stop_event.wait(timeout=0.001):
+                    break
                 continue
             
             frame_counter += 1
@@ -875,7 +889,7 @@ class DualCameraManager:
                 danger = self.right_danger
             
             # Quick check for stop signal before heavy operations
-            if not self.running:
+            if self._stop_event.is_set():
                 del frame
                 break
             
@@ -906,25 +920,29 @@ class DualCameraManager:
                     if self.right_encoded is not None:
                         del self.right_encoded
                     self.right_encoded = frame_bytes
+        
+        print("🛑 Right video thread exiting")
     
     def _left_ai_loop(self):
         """Left AI thread - MEMORY LEAK PREVENTION & CPU OPTIMIZED"""
         frame_counter = 0
         last_gc = time.time()
         
-        while self.running:
+        while self.running and not self._stop_event.is_set():
             # Quick exit check at start of each iteration
-            if not self.running:
+            if self._stop_event.is_set():
                 break
                 
             # Frame skipping for CPU (process every 3rd frame = 10 FPS AI)
             frame_counter += 1
             if frame_counter % 3 != 0:
-                time.sleep(0.02)  # Small delay when skipping
+                # Use event wait instead of sleep for faster response
+                if self._stop_event.wait(timeout=0.02):
+                    break
                 continue
             
-            # Check again after sleep
-            if not self.running:
+            # Check again after wait
+            if self._stop_event.is_set():
                 break
             
             # Periodic garbage collection to prevent memory accumulation (more frequent on Jetson)
@@ -951,12 +969,13 @@ class DualCameraManager:
                                            interpolation=cv2.INTER_LINEAR)
             
             if self.left_latest_frame is None:
-                time.sleep(0.01)
+                if self._stop_event.wait(timeout=0.01):
+                    break
                 continue
             
             try:
                 # Quick exit check before heavy AI operation
-                if not self.running:
+                if self._stop_event.is_set():
                     del frame_small
                     break
                     
@@ -977,26 +996,31 @@ class DualCameraManager:
                 # Clean up any partial variables
                 if 'frame_small' in locals():
                     del frame_small
-                time.sleep(0.1)
+                if self._stop_event.wait(timeout=0.1):
+                    break
+        
+        print("🛑 Left AI thread exiting")
     
     def _right_ai_loop(self):
         """Right AI thread - MEMORY LEAK PREVENTION & CPU OPTIMIZED"""
         frame_counter = 0
         last_gc = time.time()
         
-        while self.running:
+        while self.running and not self._stop_event.is_set():
             # Quick exit check at start of each iteration
-            if not self.running:
+            if self._stop_event.is_set():
                 break
                 
             # Frame skipping for CPU (process every 3rd frame = 10 FPS AI)
             frame_counter += 1
             if frame_counter % 3 != 0:
-                time.sleep(0.02)  # Small delay when skipping
+                # Use event wait instead of sleep for faster response
+                if self._stop_event.wait(timeout=0.02):
+                    break
                 continue
             
-            # Check again after sleep
-            if not self.running:
+            # Check again after wait
+            if self._stop_event.is_set():
                 break
             
             # Periodic garbage collection to prevent memory accumulation (more frequent on Jetson)
@@ -1023,12 +1047,13 @@ class DualCameraManager:
                                            interpolation=cv2.INTER_LINEAR)
             
             if self.right_latest_frame is None:
-                time.sleep(0.01)
+                if self._stop_event.wait(timeout=0.01):
+                    break
                 continue
             
             try:
                 # Quick exit check before heavy AI operation
-                if not self.running:
+                if self._stop_event.is_set():
                     del frame_small
                     break
                     
@@ -1049,7 +1074,10 @@ class DualCameraManager:
                 # Clean up any partial variables
                 if 'frame_small' in locals():
                     del frame_small
-                time.sleep(0.1)
+                if self._stop_event.wait(timeout=0.1):
+                    break
+        
+        print("🛑 Right AI thread exiting")
     
     def get_left_frame(self):
         """Get encoded left camera frame"""
@@ -1075,15 +1103,17 @@ class DualCameraManager:
         """Stop dual camera blind spot detection - ROBUST cleanup for Jetson"""
         print("🛑 Stopping blind spot detection...")
         
-        # Signal threads to stop FIRST (before any other cleanup)
+        # Signal threads to stop FIRST using both mechanisms for reliability
         self.running = False
         self.active = False
+        self._stop_event.set()  # Signal threads via event (faster response)
         
         # Import camera manager for proper cleanup
         from app.services.camera_manager import force_release_camera, release_camera_lock
         
-        # Wait for threads to notice the stop flag and exit gracefully
-        thread_timeout = 1.0 if self.is_jetson else 0.5  # Longer timeout on Jetson
+        # Wait for threads to notice the stop signal and exit gracefully
+        # Longer timeout on Jetson due to potential blocking in camera reads
+        thread_timeout = 2.0 if self.is_jetson else 1.0
         
         threads = [
             ('left_video', self.left_video_thread),
@@ -1092,11 +1122,21 @@ class DualCameraManager:
             ('right_ai', self.right_ai_thread)
         ]
         
+        # First pass: try to join all threads gracefully
         for name, thread in threads:
             if thread is not None and thread.is_alive():
                 thread.join(timeout=thread_timeout)
                 if thread.is_alive():
-                    print(f"⚠️ Thread {name} did not stop gracefully")
+                    print(f"⚠️ Thread {name} did not stop after {thread_timeout}s, continuing cleanup...")
+        
+        # Second pass: check again after a small delay (threads may still be exiting)
+        time.sleep(0.1)
+        for name, thread in threads:
+            if thread is not None and thread.is_alive():
+                # Final attempt with shorter timeout
+                thread.join(timeout=0.5)
+                if thread.is_alive():
+                    print(f"⚠️ Thread {name} still running - will be abandoned (daemon thread)")
         
         # Clear threads references
         self.left_video_thread = None

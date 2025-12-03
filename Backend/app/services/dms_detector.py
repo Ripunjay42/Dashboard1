@@ -249,6 +249,11 @@ class DMSStreamManager:
         self.cap = None
         self.is_running = False
         self.lock = threading.Lock()
+        self._stop_event = threading.Event()  # More reliable stop signal
+        
+        # Thread references for proper cleanup
+        self._video_thread = None
+        self._ai_thread = None
         
         # Detect Jetson
         self.is_jetson = os.path.exists('/etc/nv_tegra_release')
@@ -354,14 +359,15 @@ class DMSStreamManager:
             return False
         
         self.is_running = True
+        self._stop_event.clear()  # Clear stop event before starting threads
         
         # Thread 1: FAST video streaming (no AI, just overlay)
-        video_thread = threading.Thread(target=self._video_stream_loop, daemon=True)
-        video_thread.start()
+        self._video_thread = threading.Thread(target=self._video_stream_loop, daemon=True)
+        self._video_thread.start()
         
         # Thread 2: SLOW AI inference (MediaPipe, independent)
-        ai_thread = threading.Thread(target=self._ai_inference_loop, daemon=True)
-        ai_thread.start()
+        self._ai_thread = threading.Thread(target=self._ai_inference_loop, daemon=True)
+        self._ai_thread.start()
         
         print("✓ DMS detection started (TWO THREAD ARCHITECTURE)")
         print("   - Thread 1: Video streaming (30 FPS, smooth)")
@@ -376,12 +382,12 @@ class DMSStreamManager:
         frame_counter = 0
         last_gc = time.time()
         
-        while self.is_running:
+        while self.is_running and not self._stop_event.is_set():
             if not self.cap or not self.cap.isOpened():
                 break
             
             # Quick check for stop signal
-            if not self.is_running:
+            if self._stop_event.is_set():
                 break
             
             # More frequent garbage collection to prevent memory buildup
@@ -396,12 +402,14 @@ class DMSStreamManager:
             
             # Now grab and retrieve the fresh frame
             if not self.cap.grab():
-                time.sleep(0.001)
+                if self._stop_event.wait(timeout=0.001):
+                    break
                 continue
             
             ret, frame = self.cap.retrieve()
             if not ret or frame is None:
-                time.sleep(0.001)
+                if self._stop_event.wait(timeout=0.001):
+                    break
                 continue
             
             frame_counter += 1
@@ -416,7 +424,7 @@ class DMSStreamManager:
                 yawn = self.yawn_value
             
             # Quick check for stop signal before heavy operations
-            if not self.is_running:
+            if self._stop_event.is_set():
                 del frame
                 break
             
@@ -452,15 +460,17 @@ class DMSStreamManager:
                     if self.encoded_frame is not None:
                         del self.encoded_frame
                     self.encoded_frame = frame_bytes
+        
+        print("🛑 DMS video thread exiting")
     
     def _ai_inference_loop(self):
         """
         THREAD 2: AI Inference with MediaPipe - Independent
         Processes frames and updates overlay/status without blocking video
         """
-        while self.is_running:
+        while self.is_running and not self._stop_event.is_set():
             # Quick exit check at start of each iteration
-            if not self.is_running:
+            if self._stop_event.is_set():
                 break
                 
             # Get latest frame copy (non-blocking)
@@ -470,11 +480,12 @@ class DMSStreamManager:
                     frame = self.latest_frame.copy()
             
             if frame is None:
-                time.sleep(0.01)
+                if self._stop_event.wait(timeout=0.01):
+                    break
                 continue
             
             # Quick exit check before heavy AI operation
-            if not self.is_running:
+            if self._stop_event.is_set():
                 del frame
                 break
             
@@ -506,7 +517,10 @@ class DMSStreamManager:
             
             # Small delay to prevent CPU overload (MediaPipe is already somewhat slow)
             if self.is_jetson:
-                time.sleep(0.01)  # ~100 FPS max on Jetson
+                if self._stop_event.wait(timeout=0.01):  # ~100 FPS max on Jetson
+                    break
+        
+        print("🛑 DMS AI thread exiting")
     
     def get_encoded_frame(self):
         """Get pre-encoded JPEG frame"""
@@ -537,14 +551,39 @@ class DMSStreamManager:
         """Stop DMS detection - ROBUST cleanup for Jetson"""
         print("🛑 Stopping DMS detection...")
         
-        # Signal threads to stop FIRST
+        # Signal threads to stop using both mechanisms for reliability
         self.is_running = False
+        self._stop_event.set()  # Signal threads via event (faster response)
         
         # Import camera manager for proper cleanup
         from app.services.camera_manager import force_release_camera, release_camera_lock
         
-        # Wait for threads to notice the stop flag and exit gracefully
-        time.sleep(0.3 if self.is_jetson else 0.15)
+        # Wait for threads with proper join
+        thread_timeout = 2.0 if self.is_jetson else 1.0
+        
+        threads = [
+            ('video', self._video_thread),
+            ('ai', self._ai_thread)
+        ]
+        
+        # First pass: try to join all threads gracefully
+        for name, thread in threads:
+            if thread is not None and thread.is_alive():
+                thread.join(timeout=thread_timeout)
+                if thread.is_alive():
+                    print(f"⚠️ DMS {name} thread did not stop after {thread_timeout}s")
+        
+        # Second pass: check again after a small delay
+        time.sleep(0.1)
+        for name, thread in threads:
+            if thread is not None and thread.is_alive():
+                thread.join(timeout=0.5)
+                if thread.is_alive():
+                    print(f"⚠️ DMS {name} thread still running - will be abandoned (daemon thread)")
+        
+        # Clear thread references
+        self._video_thread = None
+        self._ai_thread = None
         
         # Release camera with proper Jetson cleanup
         if self.cap is not None:
