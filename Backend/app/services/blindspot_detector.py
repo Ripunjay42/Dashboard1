@@ -1065,10 +1065,16 @@ class DualCameraManager:
         self.right_ai_thread = None
         
         # Release cameras with proper Jetson cleanup
+        # IMPORTANT: Check if cameras are same object BEFORE releasing
+        same_camera = (self.right_cap is not None and self.left_cap is not None 
+                       and self.right_cap is self.left_cap)
+        
         if self.left_cap:
             force_release_camera(self.left_cap, "blindspot-left")
             self.left_cap = None
-        if self.right_cap and self.right_cap != self.left_cap:  # Only release if different
+        
+        if self.right_cap and not same_camera:
+            # Only release right if it's a different camera
             force_release_camera(self.right_cap, "blindspot-right")
         self.right_cap = None
         
@@ -1092,7 +1098,7 @@ class DualCameraManager:
         
         # Additional delay on Jetson for camera driver to fully release
         if self.is_jetson:
-            time.sleep(0.2)
+            time.sleep(0.3)  # Increased delay for dual cameras
         
         print("✓ Blind spot detection stopped")
     

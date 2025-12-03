@@ -7,6 +7,7 @@ const BlindSpotDetector = ({ onBack }) => {
   const [error, setError] = useState(null);
   const [leftDanger, setLeftDanger] = useState(false);
   const [rightDanger, setRightDanger] = useState(false);
+  const [feedKey, setFeedKey] = useState(Date.now()); // Cache buster for video feeds
   const statusIntervalRef = useRef(null);
   const leftImgRef = useRef(null);
   const rightImgRef = useRef(null);
@@ -81,6 +82,8 @@ const BlindSpotDetector = ({ onBack }) => {
       const data = await response.json();
       
       if (data.status === 'success') {
+        // Generate new cache key to force fresh feed connections
+        setFeedKey(Date.now());
         setIsActive(true);
         setLoading(false);
         setLoadingMessage('');
@@ -160,10 +163,11 @@ const BlindSpotDetector = ({ onBack }) => {
               </div>
               <img
                 ref={leftImgRef}
-                src={`${API_URL}/left_feed`}
+                src={`${API_URL}/left_feed?t=${feedKey}`}
                 alt="Left Blind Spot Feed"
                 className="w-full h-full object-contain"
                 style={{ display: 'block' }}
+                onError={(e) => console.error('Left feed error:', e)}
               />
               {leftDanger && (
                 <div className="absolute top-2 right-2 z-20">
@@ -184,10 +188,11 @@ const BlindSpotDetector = ({ onBack }) => {
               </div>
               <img
                 ref={rightImgRef}
-                src={`${API_URL}/right_feed`}
+                src={`${API_URL}/right_feed?t=${feedKey}`}
                 alt="Right Blind Spot Feed"
                 className="w-full h-full object-contain"
                 style={{ display: 'block' }}
+                onError={(e) => console.error('Right feed error:', e)}
               />
               {rightDanger && (
                 <div className="absolute top-2 right-2 z-20">

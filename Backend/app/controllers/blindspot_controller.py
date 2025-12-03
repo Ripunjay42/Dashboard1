@@ -136,29 +136,36 @@ def generate_left_frames():
     frame_timeout = 5.0  # Exit if no new frame for 5 seconds
     
     while True:
-        # Check if manager is still active (quick exit on stop)
-        if camera_manager is None or not camera_manager.is_active():
-            break
-        
-        # Check for frame timeout (feed stuck)
-        if time.time() - last_frame_time > frame_timeout:
-            print("⚠️ Blindspot left feed timeout - no new frames")
-            break
-            
-        frame_bytes = camera_manager.get_left_frame()
-        if frame_bytes is None:
-            consecutive_failures += 1
-            if consecutive_failures > max_failures:
-                # Too many failures, exit to prevent browser hang
+        try:
+            # Check if manager is still active (quick exit on stop)
+            if camera_manager is None or not camera_manager.is_active():
                 break
-            time.sleep(0.033)  # ~30fps rate limiting, prevents CPU spin
-            continue
-        
-        consecutive_failures = 0  # Reset on success
-        last_frame_time = time.time()  # Update last frame time
-        
-        yield (b'--frame\r\n'
-               b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
+            
+            # Check for frame timeout (feed stuck)
+            if time.time() - last_frame_time > frame_timeout:
+                print("⚠️ Blindspot left feed timeout - no new frames")
+                break
+                
+            frame_bytes = camera_manager.get_left_frame()
+            if frame_bytes is None:
+                consecutive_failures += 1
+                if consecutive_failures > max_failures:
+                    # Too many failures, exit to prevent browser hang
+                    break
+                time.sleep(0.033)  # ~30fps rate limiting, prevents CPU spin
+                continue
+            
+            consecutive_failures = 0  # Reset on success
+            last_frame_time = time.time()  # Update last frame time
+            
+            yield (b'--frame\r\n'
+                   b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
+        except (GeneratorExit, StopIteration):
+            # Client disconnected or generator stopped
+            break
+        except Exception as e:
+            print(f"⚠️ Left feed error: {e}")
+            break
 
 
 def generate_right_frames():
@@ -175,29 +182,36 @@ def generate_right_frames():
     frame_timeout = 5.0  # Exit if no new frame for 5 seconds
     
     while True:
-        # Check if manager is still active (quick exit on stop)
-        if camera_manager is None or not camera_manager.is_active():
-            break
-        
-        # Check for frame timeout (feed stuck)
-        if time.time() - last_frame_time > frame_timeout:
-            print("⚠️ Blindspot right feed timeout - no new frames")
-            break
-            
-        frame_bytes = camera_manager.get_right_frame()
-        if frame_bytes is None:
-            consecutive_failures += 1
-            if consecutive_failures > max_failures:
-                # Too many failures, exit to prevent browser hang
+        try:
+            # Check if manager is still active (quick exit on stop)
+            if camera_manager is None or not camera_manager.is_active():
                 break
-            time.sleep(0.033)  # ~30fps rate limiting, prevents CPU spin
-            continue
-        
-        consecutive_failures = 0  # Reset on success
-        last_frame_time = time.time()  # Update last frame time
-        
-        yield (b'--frame\r\n'
-               b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
+            
+            # Check for frame timeout (feed stuck)
+            if time.time() - last_frame_time > frame_timeout:
+                print("⚠️ Blindspot right feed timeout - no new frames")
+                break
+                
+            frame_bytes = camera_manager.get_right_frame()
+            if frame_bytes is None:
+                consecutive_failures += 1
+                if consecutive_failures > max_failures:
+                    # Too many failures, exit to prevent browser hang
+                    break
+                time.sleep(0.033)  # ~30fps rate limiting, prevents CPU spin
+                continue
+            
+            consecutive_failures = 0  # Reset on success
+            last_frame_time = time.time()  # Update last frame time
+            
+            yield (b'--frame\r\n'
+                   b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
+        except (GeneratorExit, StopIteration):
+            # Client disconnected or generator stopped
+            break
+        except Exception as e:
+            print(f"⚠️ Right feed error: {e}")
+            break
 
 
 def left_video_feed():
