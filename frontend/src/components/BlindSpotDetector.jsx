@@ -191,7 +191,7 @@ const BlindSpotDetector = ({ onBack }) => {
           >
             Left
           </button>
-          {/* <button
+          <button
             onClick={() => handleViewModeChange('both')}
             className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-all ${
               viewMode === 'both'
@@ -200,7 +200,7 @@ const BlindSpotDetector = ({ onBack }) => {
             }`}
           >
             Both
-          </button> */}
+          </button>
           <button
             onClick={() => handleViewModeChange('right')}
             className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-all ${
