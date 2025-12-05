@@ -135,7 +135,7 @@ const Car3DView = ({ pirAlert = 0 }) => {
             <div className="flex items-center gap-3">
               <MdWarning className="w-6 h-6 text-red-400 animate-bounce" />
               <span className="text-red-200 text-sm sm:text-base font-bold tracking-widest">
-                Motion Detected in Vehicle
+                Motion Detected under Vehicle
               </span>
               <MdWarning className="w-6 h-6 text-red-400 animate-bounce" />
             </div>
