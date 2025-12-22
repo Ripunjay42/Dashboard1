@@ -904,3 +904,602 @@ class VideoStreamManager:
     def is_active(self):
         """Check if stream is active"""
         return self.is_running and self.cap is not None and self.cap.isOpened()
+
+
+class DualCameraManager:
+    """
+    DUAL CAMERA POTHOLE DETECTION: Top + Bottom Views
+    
+    Similar to blind spot detector but for pothole detection:
+    - Two camera threads: Top camera + Bottom camera
+    - Two AI threads: Pothole detection for each view
+    - Frame skipping: Process every 3rd frame for efficiency
+    - MJPEG streaming: Direct binary, no base64
+    - Single camera mode: Only opens one camera for less Jetson load
+    - Camera mode: 'top', 'bottom', or 'both'
+    
+    Result: Smooth dual camera pothole detection!
+    """
+    
+    def __init__(self, top_cam_id=0, bottom_cam_id=2, camera_mode='top'):
+        """
+        Initialize dual camera manager
+        
+        Args:
+            top_cam_id: Camera ID for top view (default: 0)
+            bottom_cam_id: Camera ID for bottom view (default: 2)
+            camera_mode: 'top', 'bottom', or 'both' (default: 'top')
+        """
+        self.top_cam_id = top_cam_id
+        self.bottom_cam_id = bottom_cam_id
+        self.camera_mode = camera_mode  # 'top', 'bottom', or 'both'
+        
+        # Camera captures
+        self.top_cap = None
+        self.bottom_cap = None
+        
+        # Thread-safe control
+        self.is_running = False
+        self.lock = threading.Lock()
+        self._stop_event = threading.Event()
+        
+        # Thread references
+        self._top_video_thread = None
+        self._bottom_video_thread = None
+        self._top_ai_thread = None
+        self._bottom_ai_thread = None
+        
+        # Shared buffers for each camera
+        self.top_latest_frame = None
+        self.top_encoded_frame = None
+        self.top_pothole_detected = False
+        self.top_current_mask = None
+        
+        self.bottom_latest_frame = None
+        self.bottom_encoded_frame = None
+        self.bottom_pothole_detected = False
+        self.bottom_current_mask = None
+        
+        # Detection smoothing for each camera
+        self.top_detection_history = []
+        self.bottom_detection_history = []
+        self.detection_history_size = 3
+        self.min_detections_to_start = 2
+        self.min_detections_to_continue = 1
+        self.top_is_currently_detecting = False
+        self.bottom_is_currently_detecting = False
+        self.top_frames_since_detection = 0
+        self.bottom_frames_since_detection = 0
+        self.detection_persistence = 5
+        
+        # Detect Jetson
+        self.is_jetson = self._detect_jetson_nano()
+        
+        # Get global detector (shared between cameras)
+        self.detector = _global_detector
+        
+        # Performance settings
+        if self.is_jetson:
+            if hasattr(self.detector, 'device') and self.detector.device == 'cuda':
+                self.jpeg_quality = 60
+            else:
+                self.jpeg_quality = 55
+        else:
+            self.jpeg_quality = 70
+        
+        print(f"🎥 Dual Camera Pothole Manager initialized:")
+        print(f"   Camera mode: {self.camera_mode}")
+        print(f"   Top camera: {top_cam_id}, Bottom camera: {bottom_cam_id}")
+        print(f"   Platform: {'Jetson' if self.is_jetson else 'Desktop'}")
+    
+    def _detect_jetson_nano(self):
+        """Detect if running on Jetson"""
+        try:
+            if os.path.exists('/etc/nv_tegra_release'):
+                return True
+            with open('/proc/device-tree/model', 'r') as f:
+                model = f.read().lower()
+                return 'jetson' in model or 'tegra' in model
+        except:
+            return False
+    
+    def _open_cameras(self):
+        """Open cameras based on camera_mode"""
+        from app.services.camera_manager import acquire_camera_lock
+        
+        # Acquire camera lock
+        if not acquire_camera_lock("pothole", timeout=3.0):
+            print("❌ Could not acquire camera lock")
+            return False
+        
+        success = True
+        
+        # Open cameras based on mode
+        if self.camera_mode in ['top', 'both']:
+            print(f"📹 Opening top camera {self.top_cam_id}...")
+            if not self._open_single_camera(self.top_cam_id, 'top'):
+                print(f"❌ Failed to open top camera")
+                success = False
+        
+        if self.camera_mode in ['bottom', 'both']:
+            print(f"📹 Opening bottom camera {self.bottom_cam_id}...")
+            if not self._open_single_camera(self.bottom_cam_id, 'bottom'):
+                print(f"❌ Failed to open bottom camera")
+                success = False
+        
+        return success
+    
+    def _open_single_camera(self, camera_id, position):
+        """Open a single camera (top or bottom)"""
+        pipelines = get_camera_pipeline(camera_id)
+        
+        for idx, (pipeline, backend) in enumerate(pipelines):
+            try:
+                if idx > 0:
+                    time.sleep(0.3)
+                
+                if backend is None:
+                    cap = cv2.VideoCapture(pipeline)
+                else:
+                    cap = cv2.VideoCapture(pipeline, backend)
+                
+                if not cap.isOpened():
+                    if cap:
+                        cap.release()
+                    continue
+                
+                # Set properties
+                if backend not in [cv2.CAP_GSTREAMER, None]:
+                    try:
+                        cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+                        cap.set(cv2.CAP_PROP_FPS, 30)
+                        cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+                        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+                        cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*'MJPG'))
+                    except:
+                        pass
+                    time.sleep(0.3)
+                
+                # Test read
+                success = False
+                for attempt in range(5):
+                    ret, frame = cap.read()
+                    if ret and frame is not None and frame.size > 0:
+                        success = True
+                        break
+                    time.sleep(0.2)
+                
+                if success:
+                    if position == 'top':
+                        self.top_cap = cap
+                    else:
+                        self.bottom_cap = cap
+                    print(f"✓ {position.capitalize()} camera opened")
+                    return True
+                else:
+                    cap.release()
+            except Exception as e:
+                print(f"Failed: {e}")
+                continue
+        
+        return False
+    
+    def start(self):
+        """Start camera threads based on camera_mode"""
+        if self.is_running:
+            return True
+        
+        if not self._open_cameras():
+            from app.services.camera_manager import release_camera_lock
+            release_camera_lock("pothole")
+            return False
+        
+        self.is_running = True
+        self._stop_event.clear()
+        
+        # Start threads based on camera_mode
+        if self.camera_mode in ['top', 'both']:
+            self._top_video_thread = threading.Thread(target=self._top_video_loop, daemon=True)
+            self._top_video_thread.start()
+            self._top_ai_thread = threading.Thread(target=self._top_ai_loop, daemon=True)
+            self._top_ai_thread.start()
+            print("✓ Top camera threads started")
+        
+        if self.camera_mode in ['bottom', 'both']:
+            self._bottom_video_thread = threading.Thread(target=self._bottom_video_loop, daemon=True)
+            self._bottom_video_thread.start()
+            self._bottom_ai_thread = threading.Thread(target=self._bottom_ai_loop, daemon=True)
+            self._bottom_ai_thread.start()
+            print("✓ Bottom camera threads started")
+        
+        return True
+    
+    def _top_video_loop(self):
+        """Video streaming loop for top camera"""
+        if not self.top_cap or not self.top_cap.isOpened():
+            return
+        
+        frame_counter = 0
+        last_gc = time.time()
+        
+        while self.is_running and not self._stop_event.is_set():
+            if not self.top_cap or not self.top_cap.isOpened():
+                break
+            
+            # Garbage collection
+            current_time = time.time()
+            if current_time - last_gc > 10.0:
+                gc.collect()
+                if hasattr(self.detector, 'device') and self.detector.device == 'cuda':
+                    torch.cuda.empty_cache()
+                last_gc = current_time
+            
+            # Grab fresh frame
+            self.top_cap.grab()
+            if not self.top_cap.grab():
+                if self._stop_event.wait(timeout=0.001):
+                    break
+                continue
+            
+            ret, frame = self.top_cap.retrieve()
+            if not ret or frame is None:
+                if self._stop_event.wait(timeout=0.001):
+                    break
+                continue
+            
+            frame_counter += 1
+            
+            # Save for AI thread
+            with self.lock:
+                self.top_latest_frame = frame.copy()
+                current_mask = self.top_current_mask
+            
+            if self._stop_event.is_set():
+                del frame
+                break
+            
+            # Apply overlay
+            if current_mask is not None:
+                color_mask = np.zeros_like(frame)
+                color_mask[current_mask > 0] = [0, 0, 255]
+                overlay_frame = cv2.addWeighted(frame, 0.7, color_mask, 0.3, 0)
+            else:
+                overlay_frame = frame
+            
+            # Resize for Jetson
+            if self.is_jetson:
+                overlay_frame = cv2.resize(overlay_frame, (480, 360), interpolation=cv2.INTER_AREA)
+            
+            # Encode
+            encode_param = [
+                int(cv2.IMWRITE_JPEG_QUALITY), self.jpeg_quality,
+                int(cv2.IMWRITE_JPEG_OPTIMIZE), 1
+            ]
+            ret, buffer = cv2.imencode('.jpg', overlay_frame, encode_param)
+            del overlay_frame
+            
+            if ret:
+                frame_bytes = buffer.tobytes()
+                del buffer
+                
+                with self.lock:
+                    if self.top_encoded_frame is not None:
+                        del self.top_encoded_frame
+                    self.top_encoded_frame = frame_bytes
+        
+        print("🛑 Top video thread exiting")
+    
+    def _bottom_video_loop(self):
+        """Video streaming loop for bottom camera"""
+        if not self.bottom_cap or not self.bottom_cap.isOpened():
+            return
+        
+        frame_counter = 0
+        last_gc = time.time()
+        
+        while self.is_running and not self._stop_event.is_set():
+            if not self.bottom_cap or not self.bottom_cap.isOpened():
+                break
+            
+            # Garbage collection
+            current_time = time.time()
+            if current_time - last_gc > 10.0:
+                gc.collect()
+                if hasattr(self.detector, 'device') and self.detector.device == 'cuda':
+                    torch.cuda.empty_cache()
+                last_gc = current_time
+            
+            # Grab fresh frame
+            self.bottom_cap.grab()
+            if not self.bottom_cap.grab():
+                if self._stop_event.wait(timeout=0.001):
+                    break
+                continue
+            
+            ret, frame = self.bottom_cap.retrieve()
+            if not ret or frame is None:
+                if self._stop_event.wait(timeout=0.001):
+                    break
+                continue
+            
+            frame_counter += 1
+            
+            # Save for AI thread
+            with self.lock:
+                self.bottom_latest_frame = frame.copy()
+                current_mask = self.bottom_current_mask
+            
+            if self._stop_event.is_set():
+                del frame
+                break
+            
+            # Apply overlay
+            if current_mask is not None:
+                color_mask = np.zeros_like(frame)
+                color_mask[current_mask > 0] = [0, 0, 255]
+                overlay_frame = cv2.addWeighted(frame, 0.7, color_mask, 0.3, 0)
+            else:
+                overlay_frame = frame
+            
+            # Resize for Jetson
+            if self.is_jetson:
+                overlay_frame = cv2.resize(overlay_frame, (480, 360), interpolation=cv2.INTER_AREA)
+            
+            # Encode
+            encode_param = [
+                int(cv2.IMWRITE_JPEG_QUALITY), self.jpeg_quality,
+                int(cv2.IMWRITE_JPEG_OPTIMIZE), 1
+            ]
+            ret, buffer = cv2.imencode('.jpg', overlay_frame, encode_param)
+            del overlay_frame
+            
+            if ret:
+                frame_bytes = buffer.tobytes()
+                del buffer
+                
+                with self.lock:
+                    if self.bottom_encoded_frame is not None:
+                        del self.bottom_encoded_frame
+                    self.bottom_encoded_frame = frame_bytes
+        
+        print("🛑 Bottom video thread exiting")
+    
+    def _top_ai_loop(self):
+        """AI inference loop for top camera"""
+        while self.is_running and not self._stop_event.is_set():
+            if self._stop_event.is_set():
+                break
+            
+            frame_small = None
+            original_h, original_w = 0, 0
+            
+            with self.lock:
+                if self.top_latest_frame is None:
+                    pass
+                else:
+                    if hasattr(self.detector, 'device') and self.detector.device == 'cuda':
+                        frame_small = cv2.resize(self.top_latest_frame, (320, 240), interpolation=cv2.INTER_LINEAR)
+                    else:
+                        frame_small = cv2.resize(self.top_latest_frame, (160, 120), interpolation=cv2.INTER_LINEAR)
+                    original_h, original_w = self.top_latest_frame.shape[:2]
+            
+            if frame_small is None:
+                if self._stop_event.wait(timeout=0.005):
+                    break
+                continue
+            
+            if self._stop_event.is_set():
+                del frame_small
+                break
+            
+            # Run detection
+            mask = self.detector.detect(frame_small)
+            mask_full = cv2.resize(mask, (original_w, original_h), interpolation=cv2.INTER_NEAREST)
+            
+            # Check detection
+            pothole_pixels = np.sum(mask_full > 0)
+            total_pixels = mask_full.shape[0] * mask_full.shape[1]
+            is_detected = (pothole_pixels / total_pixels) > 0.005
+            
+            # Smoothing
+            self.top_detection_history.append(is_detected)
+            if len(self.top_detection_history) > self.detection_history_size:
+                self.top_detection_history.pop(0)
+            
+            detections_count = sum(self.top_detection_history)
+            
+            # Hysteresis
+            if not self.top_is_currently_detecting:
+                if detections_count >= self.min_detections_to_start:
+                    self.top_is_currently_detecting = True
+                    self.top_frames_since_detection = 0
+                    with self.lock:
+                        self.top_current_mask = mask_full
+                        self.top_pothole_detected = True
+            else:
+                if detections_count >= self.min_detections_to_continue:
+                    self.top_frames_since_detection = 0
+                    with self.lock:
+                        self.top_current_mask = mask_full
+                        self.top_pothole_detected = True
+                else:
+                    self.top_frames_since_detection += 1
+                    if self.top_frames_since_detection > self.detection_persistence:
+                        self.top_is_currently_detecting = False
+                        with self.lock:
+                            self.top_current_mask = None
+                            self.top_pothole_detected = False
+            
+            # Frame skip on CPU
+            if self.is_jetson and hasattr(self.detector, 'device') and self.detector.device == 'cpu':
+                if self._stop_event.wait(timeout=0.033):
+                    break
+        
+        print("🛑 Top AI thread exiting")
+    
+    def _bottom_ai_loop(self):
+        """AI inference loop for bottom camera"""
+        while self.is_running and not self._stop_event.is_set():
+            if self._stop_event.is_set():
+                break
+            
+            frame_small = None
+            original_h, original_w = 0, 0
+            
+            with self.lock:
+                if self.bottom_latest_frame is None:
+                    pass
+                else:
+                    if hasattr(self.detector, 'device') and self.detector.device == 'cuda':
+                        frame_small = cv2.resize(self.bottom_latest_frame, (320, 240), interpolation=cv2.INTER_LINEAR)
+                    else:
+                        frame_small = cv2.resize(self.bottom_latest_frame, (160, 120), interpolation=cv2.INTER_LINEAR)
+                    original_h, original_w = self.bottom_latest_frame.shape[:2]
+            
+            if frame_small is None:
+                if self._stop_event.wait(timeout=0.005):
+                    break
+                continue
+            
+            if self._stop_event.is_set():
+                del frame_small
+                break
+            
+            # Run detection
+            mask = self.detector.detect(frame_small)
+            mask_full = cv2.resize(mask, (original_w, original_h), interpolation=cv2.INTER_NEAREST)
+            
+            # Check detection
+            pothole_pixels = np.sum(mask_full > 0)
+            total_pixels = mask_full.shape[0] * mask_full.shape[1]
+            is_detected = (pothole_pixels / total_pixels) > 0.005
+            
+            # Smoothing
+            self.bottom_detection_history.append(is_detected)
+            if len(self.bottom_detection_history) > self.detection_history_size:
+                self.bottom_detection_history.pop(0)
+            
+            detections_count = sum(self.bottom_detection_history)
+            
+            # Hysteresis
+            if not self.bottom_is_currently_detecting:
+                if detections_count >= self.min_detections_to_start:
+                    self.bottom_is_currently_detecting = True
+                    self.bottom_frames_since_detection = 0
+                    with self.lock:
+                        self.bottom_current_mask = mask_full
+                        self.bottom_pothole_detected = True
+            else:
+                if detections_count >= self.min_detections_to_continue:
+                    self.bottom_frames_since_detection = 0
+                    with self.lock:
+                        self.bottom_current_mask = mask_full
+                        self.bottom_pothole_detected = True
+                else:
+                    self.bottom_frames_since_detection += 1
+                    if self.bottom_frames_since_detection > self.detection_persistence:
+                        self.bottom_is_currently_detecting = False
+                        with self.lock:
+                            self.bottom_current_mask = None
+                            self.bottom_pothole_detected = False
+            
+            # Frame skip on CPU
+            if self.is_jetson and hasattr(self.detector, 'device') and self.detector.device == 'cpu':
+                if self._stop_event.wait(timeout=0.033):
+                    break
+        
+        print("🛑 Bottom AI thread exiting")
+    
+    def get_top_encoded_frame(self):
+        """Get encoded frame from top camera"""
+        with self.lock:
+            return self.top_encoded_frame
+    
+    def get_bottom_encoded_frame(self):
+        """Get encoded frame from bottom camera"""
+        with self.lock:
+            return self.bottom_encoded_frame
+    
+    def is_top_danger(self):
+        """Check if pothole detected in top view"""
+        with self.lock:
+            return self.top_pothole_detected
+    
+    def is_bottom_danger(self):
+        """Check if pothole detected in bottom view"""
+        with self.lock:
+            return self.bottom_pothole_detected
+    
+    def stop(self):
+        """Stop all threads and release cameras"""
+        print("🛑 Stopping dual camera pothole detection...")
+        
+        self.is_running = False
+        self._stop_event.set()
+        
+        from app.services.camera_manager import force_release_camera, release_camera_lock
+        
+        # Wait for threads
+        thread_timeout = 2.0 if self.is_jetson else 1.0
+        threads = [
+            ('top_video', self._top_video_thread),
+            ('bottom_video', self._bottom_video_thread),
+            ('top_ai', self._top_ai_thread),
+            ('bottom_ai', self._bottom_ai_thread)
+        ]
+        
+        for name, thread in threads:
+            if thread is not None and thread.is_alive():
+                thread.join(timeout=thread_timeout)
+                if thread.is_alive():
+                    print(f"⚠️ {name} thread did not stop")
+        
+        # Clear thread references
+        self._top_video_thread = None
+        self._bottom_video_thread = None
+        self._top_ai_thread = None
+        self._bottom_ai_thread = None
+        
+        # Release cameras
+        if self.top_cap is not None:
+            force_release_camera(self.top_cap, "pothole_top")
+            self.top_cap = None
+        
+        if self.bottom_cap is not None:
+            force_release_camera(self.bottom_cap, "pothole_bottom")
+            self.bottom_cap = None
+        
+        # Release lock
+        release_camera_lock("pothole")
+        
+        # Clear buffers
+        with self.lock:
+            self.top_latest_frame = None
+            self.top_encoded_frame = None
+            self.top_current_mask = None
+            self.top_pothole_detected = False
+            
+            self.bottom_latest_frame = None
+            self.bottom_encoded_frame = None
+            self.bottom_current_mask = None
+            self.bottom_pothole_detected = False
+        
+        # Clear detection history
+        self.top_detection_history = []
+        self.bottom_detection_history = []
+        self.top_is_currently_detecting = False
+        self.bottom_is_currently_detecting = False
+        
+        # Garbage collection
+        gc.collect()
+        if hasattr(self.detector, 'device') and self.detector.device == 'cuda':
+            torch.cuda.empty_cache()
+        
+        if self.is_jetson:
+            time.sleep(0.2)
+        
+        print("✓ Dual camera pothole detection stopped")
+    
+    def is_active(self):
+        """Check if manager is active"""
+        return self.is_running

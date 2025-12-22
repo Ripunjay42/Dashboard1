@@ -18,11 +18,15 @@ def preload_model():
 
 @pothole_bp.route('/start', methods=['POST'])
 def start_detection():
-    """Start pothole detection"""
-    model_path = current_app.config['MODEL_PATH']
-    camera_id = current_app.config['CAMERA_ID']
+    """Start pothole detection with optional camera mode"""
+    top_cam_id = current_app.config.get('TOP_CAMERA_ID', 0)
+    bottom_cam_id = current_app.config.get('BOTTOM_CAMERA_ID', 2)
     
-    result = pothole_controller.start_detection(model_path, camera_id)
+    # Get camera mode from request body (default: 'top' for less Jetson load)
+    data = request.get_json() or {}
+    camera_mode = data.get('camera', 'top')  # 'top', 'bottom', or 'both'
+    
+    result = pothole_controller.start_detection(top_cam_id, bottom_cam_id, camera_mode)
     if isinstance(result, tuple):
         return jsonify(result[0]), result[1]
     return jsonify(result)
@@ -46,5 +50,17 @@ def get_status():
 
 @pothole_bp.route('/video_feed', methods=['GET'])
 def video_feed():
-    """Video streaming endpoint"""
+    """Video streaming endpoint (legacy - uses top camera)"""
     return pothole_controller.video_feed()
+
+
+@pothole_bp.route('/top_feed', methods=['GET'])
+def top_feed():
+    """Top camera video streaming endpoint"""
+    return pothole_controller.top_video_feed()
+
+
+@pothole_bp.route('/bottom_feed', methods=['GET'])
+def bottom_feed():
+    """Bottom camera video streaming endpoint"""
+    return pothole_controller.bottom_video_feed()
