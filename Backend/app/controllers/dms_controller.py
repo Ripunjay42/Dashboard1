@@ -19,9 +19,9 @@ def start_detection(camera_id):
     """Start the DMS detection stream"""
     global dms_manager
     
-    # Prevent concurrent start/stop operations
-    if not _operation_lock.acquire(blocking=False):
-        return {'status': 'error', 'message': 'Operation in progress, please wait'}, 409
+    # Prevent concurrent start/stop operations - wait up to 3 seconds
+    if not _operation_lock.acquire(blocking=True, timeout=3.0):
+        return {'status': 'error', 'message': 'Operation in progress (cleanup taking longer than expected). Please retry in a few seconds.'}, 409
     
     try:
         import time
@@ -55,9 +55,18 @@ def stop_detection():
     import gc
     import torch
     
-    # Prevent concurrent start/stop operations
-    if not _operation_lock.acquire(blocking=False):
-        return {'status': 'success', 'message': 'Stop already in progress'}
+    # Prevent concurrent start/stop operations - wait up to 3 seconds
+    if not _operation_lock.acquire(blocking=True, timeout=3.0):
+        # If we can't get the lock, someone else is cleaning up
+        # Force cleanup if dms_manager exists (safety fallback)
+        if dms_manager is not None:
+            print("⚠️ CLEANUP: Lock busy, forcing DMS cleanup...")
+            try:
+                dms_manager.stop()
+                dms_manager = None
+            except Exception as e:
+                print(f"❌ CLEANUP: Forced DMS cleanup failed: {e}")
+        return {'status': 'success', 'message': 'Stop operation in progress'}
     
     try:
         if dms_manager is not None:

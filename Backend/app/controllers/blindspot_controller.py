@@ -19,9 +19,9 @@ def start_detection(left_cam_id=0, right_cam_id=1, camera_mode='left'):
     """Start the blind spot detection with single or dual camera mode"""
     global camera_manager
     
-    # Prevent concurrent start/stop operations
-    if not _operation_lock.acquire(blocking=False):
-        return {'status': 'error', 'message': 'Operation in progress, please wait'}, 409
+    # Prevent concurrent start/stop operations - wait up to 3 seconds
+    if not _operation_lock.acquire(blocking=True, timeout=3.0):
+        return {'status': 'error', 'message': 'Operation in progress (cleanup taking longer than expected). Please retry in a few seconds.'}, 409
     
     try:
         import time
@@ -73,9 +73,18 @@ def stop_detection():
     import gc
     import torch
     
-    # Prevent concurrent start/stop operations
-    if not _operation_lock.acquire(blocking=False):
-        return {'status': 'success', 'message': 'Stop already in progress'}
+    # Prevent concurrent start/stop operations - wait up to 3 seconds
+    if not _operation_lock.acquire(blocking=True, timeout=3.0):
+        # If we can't get the lock, someone else is cleaning up
+        # Force cleanup if camera_manager exists (safety fallback)
+        if camera_manager is not None:
+            print("⚠️ CLEANUP: Lock busy, forcing cleanup...")
+            try:
+                camera_manager.stop()
+                camera_manager = None
+            except Exception as e:
+                print(f"❌ CLEANUP: Forced cleanup failed: {e}")
+        return {'status': 'success', 'message': 'Stop operation in progress'}
     
     try:
         if camera_manager is not None:

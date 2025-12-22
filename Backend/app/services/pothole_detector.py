@@ -732,13 +732,24 @@ class VideoStreamManager:
     
     def _ai_inference_loop(self):
         """
-        THREAD 2: INSTANT AI Inference
-        Optimized for absolute minimum latency
+        THREAD 2: AI Inference - JETSON OPTIMIZED
+        Frame skipping and adaptive resolution for smooth performance
         """
+        frame_counter = 0
+        is_jetson = hasattr(self.detector, 'is_jetson') and self.detector.is_jetson
+        skip_count = 4 if is_jetson else 2  # Jetson: every 4th, PC: every 2nd
+        
         while self.is_running and not self._stop_event.is_set():
             # Quick exit check at start of each iteration
             if self._stop_event.is_set():
                 break
+            
+            # Frame skipping for Jetson optimization
+            frame_counter += 1
+            if frame_counter % skip_count != 0:
+                if self._stop_event.wait(timeout=0.01):
+                    break
+                continue
                 
             # Get latest frame copy (non-blocking)
             frame_small = None
@@ -748,13 +759,12 @@ class VideoStreamManager:
                 if self.latest_frame is None:
                     pass  # Will sleep below
                 else:
-                    # Adaptive resize based on device (CUDA vs CPU)
-                    if hasattr(self.detector, 'device') and self.detector.device == 'cuda':
-                        # CUDA MODE: Can handle larger frames for better quality!
-                        frame_small = cv2.resize(self.latest_frame, (320, 240), interpolation=cv2.INTER_LINEAR)
+                    # Jetson-optimized: Smaller frames for faster inference
+                    if is_jetson:
+                        ai_size = (256, 192) if (hasattr(self.detector, 'device') and self.detector.device == 'cuda') else (128, 96)
                     else:
-                        # CPU MODE: Keep small for speed
-                        frame_small = cv2.resize(self.latest_frame, (160, 120), interpolation=cv2.INTER_LINEAR)
+                        ai_size = (320, 240) if (hasattr(self.detector, 'device') and self.detector.device == 'cuda') else (160, 120)
+                    frame_small = cv2.resize(self.latest_frame, ai_size, interpolation=cv2.INTER_LINEAR)
                     
                     # CRITICAL: Store original dimensions inside lock to prevent race condition
                     original_h, original_w = self.latest_frame.shape[:2]
@@ -810,12 +820,7 @@ class VideoStreamManager:
                             self.current_mask = None
                             self.pothole_detected = False
             
-            # FRAME SKIP: Only needed on CPU mode to prevent overload
-            # GPU mode can handle full-speed processing without throttling
-            if hasattr(self.detector, 'is_jetson') and self.detector.is_jetson and self.detector.device == 'cpu':
-                if self._stop_event.wait(timeout=0.033):  # ~30 FPS AI processing on CPU mode
-                    break
-                # CUDA mode: No delay - GPU can process at full speed!
+            # Frame skipping is now handled at the start of the loop
         
         print("🛑 Pothole AI thread exiting")
     
@@ -1265,10 +1270,22 @@ class DualCameraManager:
         print("🛑 Bottom video thread exiting")
     
     def _top_ai_loop(self):
-        """AI inference loop for top camera"""
+        """AI inference loop for top camera - JETSON OPTIMIZED"""
+        frame_counter = 0
+        
+        # Jetson: Process every 4th frame, PC: every 2nd frame (pothole needs higher accuracy)
+        skip_count = 4 if self.is_jetson else 2
+        
         while self.is_running and not self._stop_event.is_set():
             if self._stop_event.is_set():
                 break
+            
+            # Frame skipping for Jetson optimization
+            frame_counter += 1
+            if frame_counter % skip_count != 0:
+                if self._stop_event.wait(timeout=0.01):
+                    break
+                continue
             
             frame_small = None
             original_h, original_w = 0, 0
@@ -1277,10 +1294,12 @@ class DualCameraManager:
                 if self.top_latest_frame is None:
                     pass
                 else:
-                    if hasattr(self.detector, 'device') and self.detector.device == 'cuda':
-                        frame_small = cv2.resize(self.top_latest_frame, (320, 240), interpolation=cv2.INTER_LINEAR)
+                    # Jetson-optimized: Smaller frame = faster inference
+                    if self.is_jetson:
+                        ai_size = (256, 192) if (hasattr(self.detector, 'device') and self.detector.device == 'cuda') else (128, 96)
                     else:
-                        frame_small = cv2.resize(self.top_latest_frame, (160, 120), interpolation=cv2.INTER_LINEAR)
+                        ai_size = (320, 240) if (hasattr(self.detector, 'device') and self.detector.device == 'cuda') else (160, 120)
+                    frame_small = cv2.resize(self.top_latest_frame, ai_size, interpolation=cv2.INTER_LINEAR)
                     original_h, original_w = self.top_latest_frame.shape[:2]
             
             if frame_small is None:
@@ -1330,18 +1349,27 @@ class DualCameraManager:
                             self.top_current_mask = None
                             self.top_pothole_detected = False
             
-            # Frame skip on CPU
-            if self.is_jetson and hasattr(self.detector, 'device') and self.detector.device == 'cpu':
-                if self._stop_event.wait(timeout=0.033):
-                    break
+            # Frame skip on CPU - already handled at loop start
         
         print("🛑 Top AI thread exiting")
     
     def _bottom_ai_loop(self):
-        """AI inference loop for bottom camera"""
+        """AI inference loop for bottom camera - JETSON OPTIMIZED"""
+        frame_counter = 0
+        
+        # Jetson: Process every 4th frame, PC: every 2nd frame
+        skip_count = 4 if self.is_jetson else 2
+        
         while self.is_running and not self._stop_event.is_set():
             if self._stop_event.is_set():
                 break
+            
+            # Frame skipping for Jetson optimization
+            frame_counter += 1
+            if frame_counter % skip_count != 0:
+                if self._stop_event.wait(timeout=0.01):
+                    break
+                continue
             
             frame_small = None
             original_h, original_w = 0, 0
@@ -1350,10 +1378,12 @@ class DualCameraManager:
                 if self.bottom_latest_frame is None:
                     pass
                 else:
-                    if hasattr(self.detector, 'device') and self.detector.device == 'cuda':
-                        frame_small = cv2.resize(self.bottom_latest_frame, (320, 240), interpolation=cv2.INTER_LINEAR)
+                    # Jetson-optimized: Smaller frame = faster inference
+                    if self.is_jetson:
+                        ai_size = (256, 192) if (hasattr(self.detector, 'device') and self.detector.device == 'cuda') else (128, 96)
                     else:
-                        frame_small = cv2.resize(self.bottom_latest_frame, (160, 120), interpolation=cv2.INTER_LINEAR)
+                        ai_size = (320, 240) if (hasattr(self.detector, 'device') and self.detector.device == 'cuda') else (160, 120)
+                    frame_small = cv2.resize(self.bottom_latest_frame, ai_size, interpolation=cv2.INTER_LINEAR)
                     original_h, original_w = self.bottom_latest_frame.shape[:2]
             
             if frame_small is None:
@@ -1403,10 +1433,7 @@ class DualCameraManager:
                             self.bottom_current_mask = None
                             self.bottom_pothole_detected = False
             
-            # Frame skip on CPU
-            if self.is_jetson and hasattr(self.detector, 'device') and self.detector.device == 'cpu':
-                if self._stop_event.wait(timeout=0.033):
-                    break
+            # Frame skipping is now handled at the start of the loop
         
         print("🛑 Bottom AI thread exiting")
     

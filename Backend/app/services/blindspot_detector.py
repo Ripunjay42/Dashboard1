@@ -26,9 +26,21 @@ else:
 _global_detector = None
 _detector_lock = threading.Lock()
 
-# Configuration - OPTIMIZED FOR WINDOWS CPU
-FRAME_W, FRAME_H = 480, 270  # Higher resolution for better quality (Windows can handle this)
-YOLO_INPUT_W, YOLO_INPUT_H = 320, 180  # Small input for YOLO inference (CPU optimization)
+# Configuration - OPTIMIZED FOR JETSON
+# Detect platform once at module level
+_IS_JETSON = os.path.exists('/etc/nv_tegra_release')
+
+if _IS_JETSON:
+    FRAME_W, FRAME_H = 400, 225  # Smaller resolution for Jetson (less memory, faster encoding)
+    YOLO_INPUT_W, YOLO_INPUT_H = 256, 144  # Very small input for YOLO on Jetson
+    ENCODE_QUALITY = 50  # Lower quality = faster encoding on Jetson
+    AI_FRAME_SKIP = 4  # Process every 4th frame on Jetson (~7.5 FPS AI)
+else:
+    FRAME_W, FRAME_H = 480, 270  # Higher resolution for PC
+    YOLO_INPUT_W, YOLO_INPUT_H = 320, 180  # Standard input for YOLO
+    ENCODE_QUALITY = 60  # Better quality for PC
+    AI_FRAME_SKIP = 3  # Process every 3rd frame on PC (~10 FPS AI)
+
 VEHICLE_CLASSES = [0, 1, 2, 3, 5, 7]  # car, truck, bus, motorbike
 DEPTH_SCALE = 38
 NEAR_THRESHOLD = 3.0
@@ -810,17 +822,10 @@ class DualCameraManager:
             color = (0, 0, 255) if danger else (0, 255, 0)
             self.detector.draw_side_mirror_grid(frame, color, is_left=True)
             
-            # Optimized Jetson encoding - good balance of size/quality
-            if self.is_jetson:
-                encode_size = (400, 225)   # Reasonable size
-                encode_quality = 50        # Lower quality for faster encoding on Jetson
-            else:
-                encode_size = (400, 225)
-                encode_quality = 60
-            
-            frame_resized = cv2.resize(frame, encode_size, interpolation=cv2.INTER_AREA)
+            # Use module-level encoding settings for Jetson optimization
+            frame_resized = cv2.resize(frame, (FRAME_W, FRAME_H), interpolation=cv2.INTER_AREA)
             ret_encode, buffer = cv2.imencode('.jpg', frame_resized, 
-                                              [cv2.IMWRITE_JPEG_QUALITY, encode_quality,
+                                              [cv2.IMWRITE_JPEG_QUALITY, ENCODE_QUALITY,
                                                cv2.IMWRITE_JPEG_OPTIMIZE, 1])  # Fast encoding
             
             del frame, frame_resized  # Clean up immediately
@@ -897,17 +902,10 @@ class DualCameraManager:
             color = (0, 0, 255) if danger else (0, 255, 0)
             self.detector.draw_side_mirror_grid(frame, color, is_left=False)
             
-            # Optimized Jetson encoding - good balance of size/quality
-            if self.is_jetson:
-                encode_size = (400, 225)   # Reasonable size
-                encode_quality = 50        # Lower quality for faster encoding on Jetson
-            else:
-                encode_size = (400, 225)
-                encode_quality = 60
-            
-            frame_resized = cv2.resize(frame, encode_size, interpolation=cv2.INTER_AREA)
+            # Use module-level encoding settings for Jetson optimization
+            frame_resized = cv2.resize(frame, (FRAME_W, FRAME_H), interpolation=cv2.INTER_AREA)
             ret_encode, buffer = cv2.imencode('.jpg', frame_resized, 
-                                              [cv2.IMWRITE_JPEG_QUALITY, encode_quality,
+                                              [cv2.IMWRITE_JPEG_QUALITY, ENCODE_QUALITY,
                                                cv2.IMWRITE_JPEG_OPTIMIZE, 1])  # Fast encoding
             
             del frame, frame_resized  # Clean up immediately
@@ -924,20 +922,23 @@ class DualCameraManager:
         print("🛑 Right video thread exiting")
     
     def _left_ai_loop(self):
-        """Left AI thread - MEMORY LEAK PREVENTION & CPU OPTIMIZED"""
+        """Left AI thread - JETSON OPTIMIZED"""
         frame_counter = 0
         last_gc = time.time()
+        
+        # Use module-level frame skip setting
+        skip_count = AI_FRAME_SKIP
         
         while self.running and not self._stop_event.is_set():
             # Quick exit check at start of each iteration
             if self._stop_event.is_set():
                 break
                 
-            # Frame skipping for CPU (process every 3rd frame = 10 FPS AI)
+            # Frame skipping (Jetson: every 4th, PC: every 3rd)
             frame_counter += 1
-            if frame_counter % 3 != 0:
+            if frame_counter % skip_count != 0:
                 # Use event wait instead of sleep for faster response
-                if self._stop_event.wait(timeout=0.02):
+                if self._stop_event.wait(timeout=0.015):
                     break
                 continue
             
@@ -1002,20 +1003,23 @@ class DualCameraManager:
         print("🛑 Left AI thread exiting")
     
     def _right_ai_loop(self):
-        """Right AI thread - MEMORY LEAK PREVENTION & CPU OPTIMIZED"""
+        """Right AI thread - JETSON OPTIMIZED"""
         frame_counter = 0
         last_gc = time.time()
+        
+        # Use module-level frame skip setting
+        skip_count = AI_FRAME_SKIP
         
         while self.running and not self._stop_event.is_set():
             # Quick exit check at start of each iteration
             if self._stop_event.is_set():
                 break
                 
-            # Frame skipping for CPU (process every 3rd frame = 10 FPS AI)
+            # Frame skipping (Jetson: every 4th, PC: every 3rd)
             frame_counter += 1
-            if frame_counter % 3 != 0:
+            if frame_counter % skip_count != 0:
                 # Use event wait instead of sleep for faster response
-                if self._stop_event.wait(timeout=0.02):
+                if self._stop_event.wait(timeout=0.015):
                     break
                 continue
             

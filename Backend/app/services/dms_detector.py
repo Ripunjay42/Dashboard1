@@ -235,12 +235,12 @@ def get_camera_pipeline(camera_id=0):
 
 class DMSStreamManager:
     """
-    DMS Stream Manager - Two Thread Architecture (SMOOTH LIKE POTHOLE)
+    DMS Stream Manager - Two Thread Architecture (JETSON OPTIMIZED)
     
     Thread 1 (Video): Camera → Apply Overlay → Encode → Stream (FAST, no AI)
     Thread 2 (AI): Copy frame → MediaPipe → Update status (SLOW, independent)
     
-    Result: Smooth 30 FPS video + accurate detection, NO LAG!
+    Result: Smooth video + accurate detection, NO LAG!
     """
     
     def __init__(self, camera_id=0):
@@ -269,6 +269,9 @@ class DMSStreamManager:
         self.ear_value = 0.0
         self.yawn_value = 0.0
         
+        # AI frame skip counter for Jetson optimization
+        self.ai_frame_skip = 3 if self.is_jetson else 2  # Process every Nth frame
+        
         # Alert state with persistence (smoother alerts)
         self.drowsy_alert_active = False
         self.yawn_alert_active = False
@@ -276,10 +279,10 @@ class DMSStreamManager:
         self.last_yawn_time = 0
         self.alert_persistence = 2.0  # Keep alert active for 2 seconds
         
-        # Performance settings (OPTIMIZED FOR SMOOTH VIDEO)
+        # Performance settings (JETSON OPTIMIZED)
         if self.is_jetson:
-            self.jpeg_quality = 60  # Good balance
-            self.frame_size = (480, 360)
+            self.jpeg_quality = 50  # Lower quality for faster encoding
+            self.frame_size = (400, 300)  # Smaller for Jetson
         else:
             self.jpeg_quality = 70
             self.frame_size = (640, 480)
@@ -465,19 +468,32 @@ class DMSStreamManager:
     
     def _ai_inference_loop(self):
         """
-        THREAD 2: AI Inference with MediaPipe - Independent
+        THREAD 2: AI Inference with MediaPipe - JETSON OPTIMIZED
         Processes frames and updates overlay/status without blocking video
         """
+        frame_counter = 0
+        
         while self.is_running and not self._stop_event.is_set():
             # Quick exit check at start of each iteration
             if self._stop_event.is_set():
                 break
+            
+            # Frame skipping for Jetson optimization (process every Nth frame)
+            frame_counter += 1
+            if frame_counter % self.ai_frame_skip != 0:
+                if self._stop_event.wait(timeout=0.01):
+                    break
+                continue
                 
             # Get latest frame copy (non-blocking)
             frame = None
             with self.lock:
                 if self.latest_frame is not None:
-                    frame = self.latest_frame.copy()
+                    # Resize frame for faster MediaPipe processing on Jetson
+                    if self.is_jetson:
+                        frame = cv2.resize(self.latest_frame, (320, 240), interpolation=cv2.INTER_LINEAR)
+                    else:
+                        frame = self.latest_frame.copy()
             
             if frame is None:
                 if self._stop_event.wait(timeout=0.01):
@@ -491,6 +507,10 @@ class DMSStreamManager:
             
             # Process frame with DMS detector (MediaPipe)
             processed_frame, is_drowsy, is_yawning, ear, yawn = self.detector.process_frame(frame)
+            
+            # Resize back to stream size for overlay
+            if self.is_jetson and processed_frame is not None:
+                processed_frame = cv2.resize(processed_frame, self.frame_size, interpolation=cv2.INTER_LINEAR)
             
             # Update alert states with persistence
             current_time = time.time()
@@ -515,10 +535,7 @@ class DMSStreamManager:
                 self.ear_value = ear
                 self.yawn_value = yawn
             
-            # Small delay to prevent CPU overload (MediaPipe is already somewhat slow)
-            if self.is_jetson:
-                if self._stop_event.wait(timeout=0.01):  # ~100 FPS max on Jetson
-                    break
+            # Frame skipping is now handled at the start of the loop
         
         print("🛑 DMS AI thread exiting")
     

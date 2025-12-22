@@ -22,9 +22,10 @@ def start_detection(top_cam_id=0, bottom_cam_id=2, camera_mode='top'):
     """Start the pothole detection with single or dual camera mode"""
     global camera_manager
     
-    # Prevent concurrent start/stop operations
-    if not _operation_lock.acquire(blocking=False):
-        return {'status': 'error', 'message': 'Operation in progress, please wait'}, 409
+    # Prevent concurrent start/stop operations with timeout
+    if not _operation_lock.acquire(blocking=True, timeout=3.0):
+        print("❌ Could not acquire lock within timeout")
+        return {'status': 'error', 'message': 'System busy, please try again in a moment'}, 409
     
     try:
         print(f"🚀 Starting pothole detection - camera_mode: {camera_mode}")
@@ -65,28 +66,51 @@ def stop_detection():
     
     print("🛑 Stopping pothole detection...")
     
-    # Prevent concurrent start/stop operations
-    if not _operation_lock.acquire(blocking=False):
-        return {'status': 'success', 'message': 'Stop already in progress'}
+    # Prevent concurrent start/stop operations with timeout
+    if not _operation_lock.acquire(blocking=True, timeout=3.0):
+        print("⚠️ Could not acquire lock for stop, attempting forced cleanup...")
+        # Force cleanup even without lock
+        if camera_manager is not None:
+            try:
+                camera_manager.stop()
+                camera_manager = None
+            except:
+                pass
+        if video_manager is not None:
+            try:
+                video_manager.stop()
+                video_manager = None
+            except:
+                pass
+        return {'status': 'success', 'message': 'Stop operation completed (forced)'}
     
     try:
         # Stop dual camera manager if active
         if camera_manager is not None:
             print("   Stopping dual camera manager...")
-            camera_manager.stop()
+            try:
+                camera_manager.stop()
+            except Exception as e:
+                print(f"   ⚠️ Error during stop: {e}")
             camera_manager = None
             print("   ✓ Dual camera manager stopped")
         
         # Stop old single camera manager if active (backward compatibility)
         if video_manager is not None:
             print("   Stopping single camera manager...")
-            video_manager.stop()
+            try:
+                video_manager.stop()
+            except Exception as e:
+                print(f"   ⚠️ Error during stop: {e}")
             video_manager = None
             print("   ✓ Single camera manager stopped")
         
         # Unload pothole model from memory
-        from app.services.pothole_detector import unload_global_detector
-        unload_global_detector()
+        try:
+            from app.services.pothole_detector import unload_global_detector
+            unload_global_detector()
+        except Exception as e:
+            print(f"   ⚠️ Error unloading model: {e}")
         
         # JETSON: Clear CUDA cache if available
         if torch.cuda.is_available():
@@ -99,6 +123,9 @@ def stop_detection():
         
         print("✅ Pothole cleanup complete")
         return {'status': 'success', 'message': 'Detection stopped'}
+    except Exception as e:
+        print(f"❌ Error in stop_detection: {e}")
+        return {'status': 'error', 'message': str(e)}, 500
     finally:
         _operation_lock.release()
 
