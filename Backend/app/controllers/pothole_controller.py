@@ -30,6 +30,14 @@ def start_detection(top_cam_id=0, bottom_cam_id=2, camera_mode='top'):
     try:
         print(f"🚀 Starting pothole detection - camera_mode: {camera_mode}")
         
+        # CRITICAL: Load the detector model FIRST before creating camera manager
+        from flask import current_app
+        from app.services.pothole_detector import get_global_detector
+        model_path = current_app.config.get('MODEL_PATH')
+        if model_path:
+            print(f"   Loading pothole detection model...")
+            get_global_detector(model_path)
+        
         # Reset manager if it exists but isn't active (clean slate)
         if camera_manager is not None and not camera_manager.is_active():
             print("   Resetting inactive manager...")

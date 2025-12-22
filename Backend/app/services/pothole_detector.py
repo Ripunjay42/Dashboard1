@@ -981,11 +981,14 @@ class DualCameraManager:
         self.is_jetson = self._detect_jetson_nano()
         
         # Get global detector (shared between cameras)
+        # CRITICAL: If detector not loaded yet, it will be None - we'll load it in start()
         self.detector = _global_detector
+        if self.detector is None:
+            print("   ⚠️ Detector not yet loaded - will load on start()")
         
         # Performance settings
         if self.is_jetson:
-            if hasattr(self.detector, 'device') and self.detector.device == 'cuda':
+            if self.detector and hasattr(self.detector, 'device') and self.detector.device == 'cuda':
                 self.jpeg_quality = 60
             else:
                 self.jpeg_quality = 55
@@ -1093,6 +1096,19 @@ class DualCameraManager:
         """Start camera threads based on camera_mode"""
         if self.is_running:
             return True
+        
+        # CRITICAL: Ensure detector is loaded before starting AI threads
+        global _global_detector
+        if self.detector is None:
+            print("   Loading pothole detection model...")
+            # Try to get the model path from config
+            try:
+                from app.config import Config
+                model_path = Config.MODEL_PATH
+                self.detector = get_global_detector(model_path)
+            except Exception as e:
+                print(f"   ❌ Failed to load detector: {e}")
+                return False
         
         if not self._open_cameras():
             from app.services.camera_manager import release_camera_lock
