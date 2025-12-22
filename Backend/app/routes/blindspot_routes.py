@@ -18,8 +18,8 @@ def preload_models():
 @blindspot_bp.route('/start', methods=['POST'])
 def start_detection():
     """Start blind spot detection with optional single camera mode"""
-    left_cam_id = current_app.config.get('LEFT_CAMERA_ID', 0)
-    right_cam_id = current_app.config.get('RIGHT_CAMERA_ID', 2)
+    left_cam_id = current_app.config.get('LEFT_CAMERA_ID', 4)
+    right_cam_id = current_app.config.get('RIGHT_CAMERA_ID', 6)
     
     # Get camera mode from request body (default: 'left' for less Jetson load)
     data = request.get_json() or {}

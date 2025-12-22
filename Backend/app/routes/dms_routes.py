@@ -20,7 +20,7 @@ def start_detection():
     """Start DMS detection"""
     # Use camera ID 0 for DMS (front-facing driver camera)
     # Can be configured in config.py if needed
-    camera_id = current_app.config.get('DMS_CAMERA_ID', 0)
+    camera_id = current_app.config.get('DMS_CAMERA_ID', 8)
     
     result = dms_controller.start_detection(camera_id)
     if isinstance(result, tuple):
